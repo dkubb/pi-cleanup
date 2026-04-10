@@ -107,5 +107,11 @@ export const buildGateFixMessage = (command: GateCommand, output: string): strin
     output,
     "```",
     "",
+    "RULES:",
+    "- Never weaken constraints. Thresholds must ratchet up, never down.",
+    "- On a coverage drop, add tests for all new/changed code.",
+    "- Never lower coverage thresholds to make the gate pass.",
+    "- The system must get stronger every time we touch it.",
+    "",
     "Please fix the issue and commit the fix.",
   ].join("\n");
