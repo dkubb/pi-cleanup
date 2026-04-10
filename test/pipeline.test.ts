@@ -68,6 +68,20 @@ describe("runReviewIfNeeded", () => {
     expect(result).toStrictEqual(false);
   });
 
+  it("returns false when base equals head", () => {
+    const runtime = createInitialRuntimeState();
+    const { pi, sendUserMessage } = makePi();
+    const { ctx } = makeCtx();
+
+    const result = runReviewIfNeeded(
+      { ctx, pi, runtime },
+      Either.right(sha1),
+      Option.some(sha1),
+    );
+    expect(result).toStrictEqual(false);
+    expect(sendUserMessage).not.toHaveBeenCalled();
+  });
+
   it("returns false when baseSHA is None", () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();

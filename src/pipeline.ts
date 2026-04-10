@@ -166,11 +166,13 @@ export const runReviewIfNeeded = (
 ): boolean => {
   const { pi, runtime, ctx } = phaseCtx;
 
-  if (runtime.reviewComplete) {
-    return false;
-  }
+  const hasValidRange =
+    !runtime.reviewComplete &&
+    Either.isRight(headEither) &&
+    Option.isSome(baseSHA) &&
+    String(headEither.right) !== String(baseSHA.value);
 
-  if (!Either.isRight(headEither) || Option.isNone(baseSHA)) {
+  if (!hasValidRange) {
     return false;
   }
 
@@ -178,7 +180,9 @@ export const runReviewIfNeeded = (
     runtime.reviewPending = true;
     runtime.cycleActions.push("Delegated code review to subagent");
     captureCollapseAnchor(runtime, ctx);
-    pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right));
+    const base = (baseSHA as Option.Some<CommitSHA>).value;
+    const head = Either.getOrThrow(headEither as Either.Either<CommitSHA>);
+    pi.sendUserMessage(buildReviewMessage(base, head));
 
     return true;
   }
@@ -212,15 +216,12 @@ const captureCycleBase = async (pi: ExtensionAPI, runtime: RuntimeState): Promis
 };
 
 /**
- * Run the git-dependent phases: dirty tree check + atomicity.
- *
- * Skipped entirely when not inside a git repository, allowing
- * gates and eval to run in non-git projects.
+ * Run git-dependent phases: dirty tree + review + atomicity.
  *
  * @param pi - The extension API.
  * @param runtime - The mutable runtime state.
  * @param ctx - The extension context.
- * @returns True if a phase needs agent action (caller should return).
+ * @returns True if a phase needs agent action.
  */
 const runGitPhases = async (
   pi: ExtensionAPI,
