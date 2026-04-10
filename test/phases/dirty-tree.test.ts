@@ -48,9 +48,7 @@ describe("isGitRepo", () => {
 
     await isGitRepo(trackingExec);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.cmd).toStrictEqual("git");
-    expect(calls[0]!.args).toEqual(["rev-parse", "--git-dir"]);
+    expect(calls).toStrictEqual([{ cmd: "git", args: ["rev-parse", "--git-dir"] }]);
   });
 });
 
@@ -112,9 +110,7 @@ describe("checkGitStatus", () => {
 
     await checkGitStatus(trackingExec);
 
-    expect(calls).toHaveLength(1);
-    expect(calls[0]!.cmd).toStrictEqual("git");
-    expect(calls[0]!.args).toEqual(["status", "--porcelain=v1"]);
+    expect(calls).toStrictEqual([{ cmd: "git", args: ["status", "--porcelain=v1"] }]);
   });
 
   it("trims leading/trailing whitespace from porcelain output", async () => {

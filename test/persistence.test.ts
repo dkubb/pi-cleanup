@@ -61,54 +61,29 @@ describe("entry type constants", () => {
 // ---------------------------------------------------------------------------
 
 describe("persistGateConfig", () => {
-  it("calls appendEntry exactly once", () => {
+  it("appends a single entry with type, commands, and description", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, singleCmdConfig);
-    expect(calls).toHaveLength(1);
+    expect(calls).toStrictEqual([
+      { type: ENTRY_TYPE_GATES, data: { commands: ["npm test"], description: "Run tests" } },
+    ]);
   });
 
-  it("uses ENTRY_TYPE_GATES as the custom type", () => {
-    const { fn, calls } = makeAppend();
-    persistGateConfig(fn, singleCmdConfig);
-    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
-  });
-
-  it("serializes commands as plain strings", () => {
-    const { fn, calls } = makeAppend();
-    persistGateConfig(fn, singleCmdConfig);
-    const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["commands"]).toEqual(["npm test"]);
-  });
-
-  it("serializes multiple commands as array of strings", () => {
+  it("serializes multiple commands as an array of plain strings", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, multiCmdConfig);
-    const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["commands"]).toEqual(["npm test", "npm run lint", "npm run build"]);
+    expect(calls).toStrictEqual([
+      {
+        type: ENTRY_TYPE_GATES,
+        data: {
+          commands: ["npm test", "npm run lint", "npm run build"],
+          description: "Full CI pipeline",
+        },
+      },
+    ]);
   });
 
-  it("preserves description", () => {
-    const { fn, calls } = makeAppend();
-    persistGateConfig(fn, singleCmdConfig);
-    const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["description"]).toStrictEqual("Run tests");
-  });
-
-  it("preserves description from multi-command config", () => {
-    const { fn, calls } = makeAppend();
-    persistGateConfig(fn, multiCmdConfig);
-    const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["description"]).toStrictEqual("Full CI pipeline");
-  });
-
-  it("does not include a cleared field", () => {
-    const { fn, calls } = makeAppend();
-    persistGateConfig(fn, singleCmdConfig);
-    const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["cleared"]).toBeUndefined();
-  });
-
-  it("data does not contain branded type objects", () => {
+  it("serializes commands as primitive strings, not branded objects", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, singleCmdConfig);
     const data = calls[0]!.data as Record<string, unknown>;
@@ -195,7 +170,7 @@ describe("persistCleanCommit", () => {
     const { fn, calls } = makeAppend();
     persistCleanCommit(fn, sha1);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(Object.keys(data)).toEqual(["sha"]);
+    expect(Object.keys(data)).toStrictEqual(["sha"]);
   });
 });
 

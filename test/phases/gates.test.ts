@@ -48,11 +48,10 @@ describe("runGates — all passed", () => {
     const config = makeConfig([cmd("npm test"), cmd("npm run lint")]);
     await runGates(trackingExec, config);
 
-    expect(calls).toHaveLength(2);
-    expect(calls[0]!.cmd).toStrictEqual("bash");
-    expect(calls[0]!.args).toEqual(["-c", "npm test"]);
-    expect(calls[1]!.cmd).toStrictEqual("bash");
-    expect(calls[1]!.args).toEqual(["-c", "npm run lint"]);
+    expect(calls).toStrictEqual([
+      { cmd: "bash", args: ["-c", "npm test"] },
+      { cmd: "bash", args: ["-c", "npm run lint"] },
+    ]);
   });
 
   it("passes timeout option of 120000ms", async () => {
@@ -65,7 +64,7 @@ describe("runGates — all passed", () => {
     const config = makeConfig([cmd("npm test")]);
     await runGates(trackingExec, config);
 
-    expect(capturedOpts[0]).toEqual({ timeout: 120_000 });
+    expect(capturedOpts[0]).toStrictEqual({ timeout: 120_000 });
   });
 });
 
@@ -180,7 +179,7 @@ describe("runGates — pass then fail sequence", () => {
     const config = makeConfig([cmd("pass1"), cmd("pass2"), cmd("fail-cmd"), cmd("never-run")]);
     await runGates(seqExec, config);
 
-    expect(order).toEqual(["pass1", "pass2", "fail-cmd"]);
+    expect(order).toStrictEqual(["pass1", "pass2", "fail-cmd"]);
   });
 });
 
