@@ -44,6 +44,7 @@ const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.lastCleanCommitSHA = Option.none();
   runtime.boomerangAnchorSet = false;
   runtime.boomerangAvailable = pi.getAllTools().some((tool) => tool.name === "boomerang");
+  runtime.evalPending = false;
 };
 
 /** Minimal entry shape for session restoration. */
