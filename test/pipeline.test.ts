@@ -3,6 +3,7 @@ import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
+import { isCycleInProgress } from "../src/pipeline.js";
 import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { decodeCommitSHA } from "../src/types.js";
@@ -53,6 +54,29 @@ const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
     sendUserMessage,
   };
 };
+
+// ---------------------------------------------------------------------------
+// isCycleInProgress
+// ---------------------------------------------------------------------------
+
+describe("isCycleInProgress", () => {
+  it("returns false when nothing is pending", () => {
+    const runtime = createInitialRuntimeState();
+    expect(isCycleInProgress(runtime)).toStrictEqual(false);
+  });
+
+  it("returns true when reviewPending is true", () => {
+    const runtime = createInitialRuntimeState();
+    runtime.reviewPending = true;
+    expect(isCycleInProgress(runtime)).toStrictEqual(true);
+  });
+
+  it("returns true when evalPending is true", () => {
+    const runtime = createInitialRuntimeState();
+    runtime.evalPending = true;
+    expect(isCycleInProgress(runtime)).toStrictEqual(true);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // runReviewIfNeeded

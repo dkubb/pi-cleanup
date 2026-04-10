@@ -74,7 +74,7 @@ const getAttempts = (state: CleanupState): AttemptCount =>
  * @param runtime - The runtime state to check.
  * @returns True if a cycle phase is pending.
  */
-const isCycleInProgress = (runtime: RuntimeState): boolean =>
+export const isCycleInProgress = (runtime: RuntimeState): boolean =>
   runtime.reviewPending || runtime.evalPending;
 
 /**
