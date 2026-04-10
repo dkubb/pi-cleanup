@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Option } from "effect";
 
 import { registerCleanupCommand, registerGatesCommand } from "./commands.js";
@@ -83,18 +83,6 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
   }
 };
 
-/**
- * Notify user of startup warnings.
- *
- * @param runtime - The runtime state.
- * @param ctx - The extension context.
- */
-const notifyStartupWarnings = (runtime: RuntimeState, ctx: ExtensionContext): void => {
-  if (Option.isNone(runtime.gateConfig)) {
-    ctx.ui.notify("No quality gates configured. Use /gates to set up.", "warning");
-  }
-};
-
 // ---------------------------------------------------------------------------
 // Extension Entry Point
 // ---------------------------------------------------------------------------
@@ -112,7 +100,6 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     restoreFromEntries(runtime, ctx.sessionManager.getEntries());
     runtime.cleanup = transition(runtime.cleanup, TransitionEvent.SessionStarted());
     updateStatus(ctx, runtime.cleanup);
-    notifyStartupWarnings(runtime, ctx);
   });
 
   // Reset the cleanup cycle when a new user-initiated prompt starts.
