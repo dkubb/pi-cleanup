@@ -98,7 +98,7 @@ export const checkGitStatus = async (exec: ExecFn): Promise<GitStatusResult> => 
  */
 export const buildDirtyTreeMessage = (porcelain: string): string =>
   [
-    "There are uncommitted changes in the working tree.",
+    "All quality gates pass. There are uncommitted changes in the working tree.",
     "Please stage and commit all changes using proper conventional commit format.",
     "",
     "```",

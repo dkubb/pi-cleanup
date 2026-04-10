@@ -1,8 +1,9 @@
 /**
- * Cleanup pipeline: dirty tree → gates → atomicity.
+ * Cleanup pipeline: gates → dirty tree → atomicity.
  *
- * Orchestrates the three-phase evaluation, dispatching transition
- * events and sending fix messages to the agent as needed.
+ * Gates run first so we never commit code that doesn't pass them.
+ * Once gates pass, we commit any dirty files (known-good code),
+ * then check atomicity.
  *
  * @module
  */
@@ -285,11 +286,11 @@ export const handleAgentEnd = async (
     return;
   }
 
-  if (await runDirtyTreePhase(pi, runtime, ctx)) {
+  if (await runGatePhase(pi, runtime, ctx)) {
     return;
   }
 
-  if (await runGatePhase(pi, runtime, ctx)) {
+  if (await runDirtyTreePhase(pi, runtime, ctx)) {
     return;
   }
 
