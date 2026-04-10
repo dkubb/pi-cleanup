@@ -165,7 +165,16 @@ export const checkAtomicity = async (
     onRight: async (headSHA) =>
       Option.match(await resolveBaseSHA(exec, lastCleanSHA), {
         onNone: () => AtomicityResult.NoBase({ headSHA }),
-        onSome: (base) => classifyCommitRange(exec, headSHA, base),
+        onSome: (base) => {
+          // When base equals HEAD (e.g., merge-base on the default
+          // Branch), the range is empty and cannot detect non-atomic
+          // Commits. Treat it the same as NoBase.
+          if (String(base) === String(headSHA)) {
+            return AtomicityResult.NoBase({ headSHA });
+          }
+
+          return classifyCommitRange(exec, headSHA, base);
+        },
       }),
   });
 };

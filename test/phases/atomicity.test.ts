@@ -161,6 +161,19 @@ describe("checkAtomicity — NoBase", () => {
       expect(result.headSHA).toBe(sha1);
     }
   });
+
+  it("returns NoBase when merge-base equals HEAD (working on default branch)", async () => {
+    const exec: ExecFn = async (_cmd, args) => {
+      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
+      if (args[0] === "merge-base") return { code: 0, stdout: sha1 + "\n", stderr: "" };
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    const result = await checkAtomicity(exec, Option.none());
+    expect(result._tag).toBe("NoBase");
+    if (result._tag === "NoBase") {
+      expect(result.headSHA).toBe(sha1);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
