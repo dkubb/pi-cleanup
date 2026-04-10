@@ -3,7 +3,7 @@ import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import { isGitUnchanged } from "../src/phases/git-status.js";
-import { runReviewIfNeeded } from "../src/pipeline.js";
+import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { decodeCommitSHA } from "../src/types.js";
 
@@ -36,93 +36,72 @@ const makePi = () => {
   };
 };
 
+const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
+  const runtime = createInitialRuntimeState();
+  const { pi, sendUserMessage } = makePi();
+  const { ctx } = makeCtx();
+
+  return {
+    input: {
+      baseSHA: Option.some(sha2),
+      commitCount: 3,
+      headEither: Either.right(sha1),
+      phaseCtx: { ctx, pi, runtime },
+      ...overrides,
+    },
+    runtime,
+    sendUserMessage,
+  };
+};
+
 // ---------------------------------------------------------------------------
 // runReviewIfNeeded
 // ---------------------------------------------------------------------------
 
 describe("runReviewIfNeeded", () => {
   it("returns false when review is already complete", () => {
-    const runtime = createInitialRuntimeState();
+    const { input, runtime, sendUserMessage } = makeReviewInput();
     runtime.reviewComplete = true;
-    const { pi, sendUserMessage } = makePi();
-    const { ctx } = makeCtx();
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha2),
-    );
-    expect(result).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(false);
     expect(sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("returns false when HEAD is invalid", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi } = makePi();
-    const { ctx } = makeCtx();
+    const { input } = makeReviewInput({ headEither: Either.left("invalid") });
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.left("invalid"),
-      Option.some(sha2),
-    );
-    expect(result).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(false);
   });
 
   it("returns false when base equals head", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi, sendUserMessage } = makePi();
-    const { ctx } = makeCtx();
+    const { input, sendUserMessage } = makeReviewInput({
+      baseSHA: Option.some(sha1),
+      headEither: Either.right(sha1),
+    });
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha1),
-    );
-    expect(result).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(false);
     expect(sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("returns false when baseSHA is None", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi } = makePi();
-    const { ctx } = makeCtx();
+    const { input } = makeReviewInput({ baseSHA: Option.none() });
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.none(),
-    );
-    expect(result).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(false);
   });
 
   it("sends review message and returns true on first call", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi, sendUserMessage } = makePi();
-    const { ctx } = makeCtx();
+    const { input, runtime, sendUserMessage } = makeReviewInput();
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha2),
-    );
-    expect(result).toStrictEqual(true);
+    expect(runReviewIfNeeded(input)).toStrictEqual(true);
     expect(runtime.reviewPending).toStrictEqual(true);
     expect(sendUserMessage).toHaveBeenCalled();
   });
 
   it("marks review complete and returns false on second call", () => {
-    const runtime = createInitialRuntimeState();
+    const { input, runtime } = makeReviewInput();
     runtime.reviewPending = true;
-    const { pi } = makePi();
-    const { ctx } = makeCtx();
 
-    const result = runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha2),
-    );
-    expect(result).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(false);
     expect(runtime.reviewComplete).toStrictEqual(true);
     expect(runtime.reviewPending).toStrictEqual(false);
   });
@@ -132,25 +111,64 @@ describe("runReviewIfNeeded", () => {
     const { pi } = makePi();
     const { ctx } = makeCtx("leaf-456");
 
-    runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha2),
-    );
+    runReviewIfNeeded({
+      baseSHA: Option.some(sha2),
+      commitCount: 1,
+      headEither: Either.right(sha1),
+      phaseCtx: { ctx, pi, runtime },
+    });
     expect(Option.isSome(runtime.collapseAnchorId)).toStrictEqual(true);
   });
 
   it("records action in cycleActions", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi } = makePi();
-    const { ctx } = makeCtx();
+    const { input, runtime } = makeReviewInput();
 
-    runReviewIfNeeded(
-      { ctx, pi, runtime },
-      Either.right(sha1),
-      Option.some(sha2),
-    );
+    runReviewIfNeeded(input);
     expect(runtime.cycleActions).toContain("Delegated code review to subagent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isGitUnchanged
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// getCommitCount
+// ---------------------------------------------------------------------------
+
+describe("getCommitCount", () => {
+  it("returns 0 when HEAD is invalid", async () => {
+    const { pi } = makePi();
+    const result = await getCommitCount(pi, Either.left("bad"), Option.some(sha1));
+    expect(result).toStrictEqual(0);
+  });
+
+  it("returns 0 when baseSHA is None", async () => {
+    const { pi } = makePi();
+    const result = await getCommitCount(pi, Either.right(sha1), Option.none());
+    expect(result).toStrictEqual(0);
+  });
+
+  it("returns parsed count from rev-list", async () => {
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "5\n",
+    });
+    const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
+    expect(result).toStrictEqual(5);
+  });
+
+  it("returns 0 when rev-list output is not a number", async () => {
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "not-a-number\n",
+    });
+    const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
+    expect(result).toStrictEqual(0);
   });
 });
 
@@ -162,22 +180,19 @@ describe("isGitUnchanged", () => {
   it("returns false when no lastCleanCommitSHA", async () => {
     const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: "" }));
 
-    const result = await isGitUnchanged(exec, Option.none());
-    expect(result).toStrictEqual(false);
+    expect(await isGitUnchanged(exec, Option.none())).toStrictEqual(false);
   });
 
   it("returns false when HEAD differs from lastCleanCommitSHA", async () => {
     const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: sha2 + "\n" }));
 
-    const result = await isGitUnchanged(exec, Option.some(sha1));
-    expect(result).toStrictEqual(false);
+    expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(false);
   });
 
   it("returns false when HEAD is invalid", async () => {
     const exec = vi.fn(async () => ({ code: 1, stderr: "error", stdout: "invalid\n" }));
 
-    const result = await isGitUnchanged(exec, Option.some(sha1));
-    expect(result).toStrictEqual(false);
+    expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(false);
   });
 
   it("returns false when HEAD matches but tree is dirty", async () => {
@@ -185,8 +200,7 @@ describe("isGitUnchanged", () => {
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "M foo.ts\n" });
 
-    const result = await isGitUnchanged(exec, Option.some(sha1));
-    expect(result).toStrictEqual(false);
+    expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(false);
   });
 
   it("returns true when HEAD matches and tree is clean", async () => {
@@ -194,7 +208,6 @@ describe("isGitUnchanged", () => {
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "" });
 
-    const result = await isGitUnchanged(exec, Option.some(sha1));
-    expect(result).toStrictEqual(true);
+    expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(true);
   });
 });

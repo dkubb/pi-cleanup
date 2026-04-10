@@ -1,38 +1,98 @@
 /**
  * Code review phase.
  *
- * Builds a message asking the agent to delegate a code review
- * to a subagent before commits are atomized.
+ * Builds a message asking the agent to delegate a holistic code
+ * review to a subagent before commits are atomized.
  *
  * @module
  */
 
 import type { CommitSHA } from "../types.js";
 
+/**
+ * Format a human-readable commit count label.
+ *
+ * @param count - Number of commits.
+ * @returns Formatted label.
+ */
+const formatCommitLabel = (count: number): string => {
+  if (count === 1) {
+    return "1 commit";
+  }
+
+  return `${String(count)} commits`;
+};
+
 // ---------------------------------------------------------------------------
 // Review Message
 // ---------------------------------------------------------------------------
 
 /**
- * Build a message asking the agent to run a subagent code review.
+ * Build the git command for viewing the changes under review.
  *
- * Includes the commit range so the reviewer knows what to examine.
- * The review runs before atomicity so commits are in natural form.
+ * Uses `git show` for a single commit and `git log --patch` for
+ * multiple commits, so the reviewer sees both code and messages.
  *
  * @param baseSHA - The base SHA for the review range.
  * @param headSHA - The HEAD SHA for the review range.
+ * @param commitCount - Number of commits in the range.
+ * @returns A git command string.
+ */
+export const buildReviewCommand = (
+  baseSHA: CommitSHA,
+  headSHA: CommitSHA,
+  commitCount: number,
+): string => {
+  if (commitCount === 1) {
+    return `git --no-pager show ${String(headSHA)}`;
+  }
+
+  return `git --no-pager log --patch ${String(baseSHA)}..${String(headSHA)}`;
+};
+
+/**
+ * Build a message asking the agent to run a subagent code review.
+ *
+ * The review is holistic: code quality, commit messages, and
+ * overall structure. Includes the appropriate git command based
+ * on whether this is a single commit or a range.
+ *
+ * @param baseSHA - The base SHA for the review range.
+ * @param headSHA - The HEAD SHA for the review range.
+ * @param commitCount - Number of commits in the range.
  * @returns A formatted message string for `sendUserMessage`.
  */
-export const buildReviewMessage = (baseSHA: CommitSHA, headSHA: CommitSHA): string =>
-  [
-    "Code review required before atomizing commits.",
+export const buildReviewMessage = (
+  baseSHA: CommitSHA,
+  headSHA: CommitSHA,
+  commitCount: number,
+): string => {
+  const commitLabel = formatCommitLabel(commitCount);
+  const reviewCmd = buildReviewCommand(baseSHA, headSHA, commitCount);
+
+  return [
+    `Code review required before atomizing commits (${commitLabel}).`,
     "",
     `Commit range: \`${String(baseSHA)}..${String(headSHA)}\``,
     "",
-    "Please delegate a code review to a subagent:",
-    "1. Have the subagent review the diff for this commit range",
-    "2. Address any issues found by the review",
-    "3. If no issues, confirm the review passed",
+    "Please delegate a holistic code review to a subagent:",
     "",
-    `Use \`git --no-pager diff ${String(baseSHA)}..${String(headSHA)}\` to see the changes.`,
+    "**Code quality:**",
+    "- Review the diff for correctness, edge cases, and style",
+    "- Check for any regressions or incomplete changes",
+    "",
+    "**Commit messages:**",
+    "- Validate messages follow conventional commit format",
+    "- Check subjects are ≤70 chars, lowercase, no period",
+    "- Verify body bullets start with action verbs",
+    "- Ensure each commit has a single clear purpose",
+    "",
+    "**Overall structure:**",
+    "- Verify changes are cohesive and well-organized",
+    "- Flag any concerns about the approach",
+    "",
+    `Use \`${reviewCmd}\` to see the changes.`,
+    "",
+    "Address any issues found, then confirm the review passed.",
   ].join("\n");
+};

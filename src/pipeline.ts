@@ -1,9 +1,9 @@
 /**
  * Cleanup pipeline orchestrator.
  *
- * Wires the phase runners (gates → dirty tree → atomicity → eval)
- * into the `agent_end` handler with guard checks, attempt limiting,
- * and navigateTree collapse.
+ * Wires the phase runners (gates → dirty tree → review →
+ * atomicity → eval) into the `agent_end` handler with guard
+ * checks, attempt limiting, and navigateTree collapse.
  *
  * @module
  */
@@ -21,16 +21,11 @@ import {
 } from "./pipeline-phases.js";
 import { isGitRepo } from "./phases/dirty-tree.js";
 import { isGitUnchanged } from "./phases/git-status.js";
-import { buildReviewMessage } from "./phases/review.js";
+import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
-import {
-  AttemptCount as AttemptCountSchema,
-  type AttemptCount,
-  type CommitSHA,
-  decodeCommitSHA,
-} from "./types.js";
+import { AttemptCount as AttemptCountSchema, type AttemptCount, decodeCommitSHA } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -61,9 +56,6 @@ const EVAL_MESSAGE = [
 /**
  * Extract the attempt count from the current cleanup state.
  *
- * Returns 0 for Idle and non-actionable states, or the stored
- * attempt count for WaitingFor* states.
- *
  * @param state - The current cleanup state.
  * @returns The attempt count for the current state.
  */
@@ -79,10 +71,6 @@ const getAttempts = (state: CleanupState): AttemptCount =>
 /**
  * Check whether the pipeline should be skipped entirely.
  *
- * Skips when the state machine is not actionable (Disabled or
- * AwaitingUserInput), when no file-mutating tools have run since
- * the last completed cycle, or when the cycle is already complete.
- *
  * @param runtime - The runtime state to check.
  * @returns True if the pipeline should not run.
  */
@@ -91,9 +79,6 @@ const shouldSkip = (runtime: RuntimeState): boolean =>
 
 /**
  * Check whether the attempt limit has been exceeded.
- *
- * If exceeded, transitions to AwaitingUserInput(Stalled) and
- * notifies the user. Returns true so the caller can bail out.
  *
  * @param runtime - The mutable runtime state.
  * @param ctx - The extension context for notifications.
@@ -141,56 +126,6 @@ const runEvalOrComplete = async (
   await collapseIfNeeded(runtime);
 };
 
-/** Context for the code review phase. */
-interface ReviewPhaseContext {
-  readonly pi: ExtensionAPI;
-  readonly runtime: RuntimeState;
-  readonly ctx: ExtensionContext;
-}
-
-/**
- * Run code review if not yet complete. First pass sends review
- * request; second pass marks complete.
- *
- * @param phaseCtx - The review phase context.
- * @param headEither - The parsed HEAD SHA result.
- * @param baseSHA - The base SHA for the review range.
- * @returns True if the phase needs agent action.
- */
-export const runReviewIfNeeded = (
-  phaseCtx: ReviewPhaseContext,
-  headEither: Either.Either<CommitSHA, unknown>,
-  baseSHA: Option.Option<CommitSHA>,
-): boolean => {
-  const { pi, runtime, ctx } = phaseCtx;
-
-  const hasValidRange =
-    !runtime.reviewComplete &&
-    Either.isRight(headEither) &&
-    Option.isSome(baseSHA) &&
-    String(headEither.right) !== String(baseSHA.value);
-
-  if (!hasValidRange) {
-    return false;
-  }
-
-  if (!runtime.reviewPending) {
-    runtime.reviewPending = true;
-    runtime.cycleActions.push("Delegated code review to subagent");
-    captureCollapseAnchor(runtime, ctx);
-    const base = (baseSHA as Option.Some<CommitSHA>).value;
-    const head = Either.getOrThrow(headEither as Either.Either<CommitSHA>);
-    pi.sendUserMessage(buildReviewMessage(base, head));
-
-    return true;
-  }
-
-  runtime.reviewPending = false;
-  runtime.reviewComplete = true;
-
-  return false;
-};
-
 /**
  * Capture HEAD as the cycle base SHA on first pipeline entry.
  *
@@ -233,12 +168,12 @@ const runGitPhases = async (
     return true;
   }
 
-  // Code review runs after tree is clean, before atomicity
   const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
   const headEither = decodeCommitSHA(headResult.stdout.trim());
   const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
+  const commitCount = await getCommitCount(pi, headEither, baseSHA);
 
-  if (runReviewIfNeeded({ ctx, pi, runtime }, headEither, baseSHA)) {
+  if (runReviewIfNeeded({ baseSHA, commitCount, headEither, phaseCtx: { ctx, pi, runtime } })) {
     return true;
   }
 
@@ -258,13 +193,11 @@ const runGitPhases = async (
 /**
  * Handle the `agent_end` event: run the full cleanup pipeline.
  *
- * Pipeline order: gates → dirty tree → atomicity → eval → collapse.
- * Each phase returns early if it needs agent action (fix, commit,
- * factor). The handler re-runs on the next `agent_end`.
+ * Pipeline: gates → dirty tree → review → atomicity → eval → collapse.
  *
- * @param pi - The extension API for exec, messaging, and persistence.
- * @param runtime - The mutable runtime state shared across calls.
- * @param ctx - The extension context for UI and session access.
+ * @param pi - The extension API.
+ * @param runtime - The mutable runtime state.
+ * @param ctx - The extension context.
  */
 export const handleAgentEnd = async (
   pi: ExtensionAPI,
@@ -285,12 +218,10 @@ export const handleAgentEnd = async (
     return;
   }
 
-  // Gates always run (not git-dependent)
   if (await runGatePhase(pi, runtime, ctx)) {
     return;
   }
 
-  // Git-dependent phases: dirty tree + atomicity (skipped outside a repo)
   if (await runGitPhases(pi, runtime, ctx)) {
     return;
   }
