@@ -82,6 +82,11 @@
     // export per module is not appropriate for utility modules
     "import/no-named-export": "off",
 
+    // Utility modules often export a single function; forcing
+    // default export conflicts with the named-import convention
+    // used throughout the project
+    "import/prefer-default-export": "off",
+
     // Grouping all exports at the bottom harms readability when
     // types and their constructors are co-located
     "import/group-exports": "off",
@@ -106,6 +111,14 @@
     // oxlint cannot resolve .js extensions in TypeScript ESM imports
     // (e.g., import from "./types.js" where the source is types.ts)
     "import/extensions": "off",
+
+    // ── False positives with Effect-TS ──
+
+    // Effect's Option.some(value) and similar single-argument
+    // constructors are flagged as "callback references" when the
+    // argument is a variable. This is a false positive — these are
+    // value constructors, not iterator method callbacks.
+    "unicorn/no-array-callback-reference": "off",
 
     // ── Overly restrictive for this codebase ──
 
@@ -146,6 +159,12 @@
     // TODO comments mark stub functions awaiting implementation;
     // re-enable once all stubs are implemented
     "eslint/no-warning-comments": "off",
+
+    // The default max-statements (10) is too tight for functions
+    // that orchestrate multiple phases or restore persisted state.
+    // 15 allows procedural orchestration without splitting into
+    // artificially granular helpers.
+    "eslint/max-statements": ["error", { "max": 15 }],
 
     // Stub async functions don't have await yet; they will once
     // implemented. Re-enable once all stubs are implemented

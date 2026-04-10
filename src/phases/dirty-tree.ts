@@ -42,7 +42,7 @@ export const GitStatusResult = Data.taggedEnum<GitStatusResult>();
  * fails for any reason, we skip cleanup rather than risk acting on
  * incomplete information).
  *
- * @param _exec - The injected exec function (pi.exec signature).
+ * @param exec - The injected exec function (pi.exec signature).
  * @returns A tagged result indicating clean, dirty, or not-a-repo.
  *
  * @example
@@ -63,16 +63,20 @@ export const GitStatusResult = Data.taggedEnum<GitStatusResult>();
  * assert(noRepo._tag === "NotARepo");
  * ```
  */
-export const checkGitStatus = async (_exec: ExecFn): Promise<GitStatusResult> => {
-  // What: Run `git status --porcelain=v1` and classify the result.
-  // Why: Determines whether the agent needs to commit before gates run.
-  // How: exec("git", ["status", "--porcelain=v1"]).
-  //      Non-zero exit → NotARepo.
-  //      Empty stdout → Clean.
-  //      Non-empty stdout → Dirty with trimmed porcelain output.
+export const checkGitStatus = async (exec: ExecFn): Promise<GitStatusResult> => {
+  const result = await exec("git", ["status", "--porcelain=v1"]);
 
-  // TODO: Implement
-  throw new Error("Not implemented");
+  if (result.code !== 0) {
+    return GitStatusResult.NotARepo();
+  }
+
+  const trimmed = result.stdout.trim();
+
+  if (trimmed.length === 0) {
+    return GitStatusResult.Clean();
+  }
+
+  return GitStatusResult.Dirty({ porcelain: trimmed });
 };
 
 /**
@@ -81,7 +85,7 @@ export const checkGitStatus = async (_exec: ExecFn): Promise<GitStatusResult> =>
  * Includes the porcelain output in a fenced code block so the agent
  * knows exactly which files need attention.
  *
- * @param _porcelain - The raw output from `git status --porcelain=v1`.
+ * @param porcelain - The raw output from `git status --porcelain=v1`.
  * @returns A formatted message string for `sendUserMessage`.
  *
  * @example
@@ -92,12 +96,12 @@ export const checkGitStatus = async (_exec: ExecFn): Promise<GitStatusResult> =>
  * assert(msg.includes("commit"));
  * ```
  */
-export const buildDirtyTreeMessage = (_porcelain: string): string => {
-  // What: Format a message with porcelain output in a code block.
-  // Why: The agent needs to see the exact dirty files to commit them.
-  // How: Join lines: instruction text, blank line, fenced code block
-  //      Containing the porcelain output.
-
-  // TODO: Implement
-  throw new Error("Not implemented");
-};
+export const buildDirtyTreeMessage = (porcelain: string): string =>
+  [
+    "There are uncommitted changes in the working tree.",
+    "Please stage and commit all changes using proper conventional commit format.",
+    "",
+    "```",
+    porcelain,
+    "```",
+  ].join("\n");

@@ -41,8 +41,8 @@ export const GateResult = Data.taggedEnum<GateResult>();
  * 120-second timeout. Stops at the first failure. Combines stdout
  * and stderr into a single output string for the failure report.
  *
- * @param _exec - The injected exec function (pi.exec signature).
- * @param _config - Gate configuration with ordered commands.
+ * @param exec - The injected exec function (pi.exec signature).
+ * @param config - Gate configuration with ordered commands.
  * @returns A tagged result indicating all-passed or first failure.
  *
  * @example
@@ -66,18 +66,19 @@ export const GateResult = Data.taggedEnum<GateResult>();
  * assert(fail._tag === "Failed");
  * ```
  */
-export const runGates = async (_exec: ExecFn, _config: GateConfig): Promise<GateResult> => {
-  // What: Execute each gate command sequentially via bash -c.
-  // Why: Gates validate code quality (format, lint, test). Sequential
-  //      Execution with fail-fast avoids running later gates that may
-  //      Depend on earlier ones passing.
-  // How: For each cmd in config.commands:
-  //        Exec("bash", ["-c", cmd], { timeout: 120_000 })
-  //        If code !== 0, return Failed with command + combined output.
-  //      If all pass, return AllPassed.
+export const runGates = async (exec: ExecFn, config: GateConfig): Promise<GateResult> => {
+  for (const cmd of config.commands) {
+    // eslint-disable-next-line no-await-in-loop -- sequential fail-fast execution
+    const result = await exec("bash", ["-c", cmd], { timeout: 120_000 });
 
-  // TODO: Implement
-  throw new Error("Not implemented");
+    if (result.code !== 0) {
+      const output = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+
+      return GateResult.Failed({ command: cmd, output });
+    }
+  }
+
+  return GateResult.AllPassed();
 };
 
 /**
@@ -86,8 +87,8 @@ export const runGates = async (_exec: ExecFn, _config: GateConfig): Promise<Gate
  * Includes the failed command and its output in fenced code blocks
  * so the agent has full context for the fix.
  *
- * @param _command - The gate command that failed.
- * @param _output - Combined stdout + stderr from the failed command.
+ * @param command - The gate command that failed.
+ * @param output - Combined stdout + stderr from the failed command.
  * @returns A formatted message string for `sendUserMessage`.
  *
  * @example
@@ -98,12 +99,13 @@ export const runGates = async (_exec: ExecFn, _config: GateConfig): Promise<Gate
  * assert(msg.includes("```"));
  * ```
  */
-export const buildGateFixMessage = (_command: GateCommand, _output: string): string => {
-  // What: Format a message with the failed gate command and output.
-  // Why: The agent needs to see which gate failed and its output to fix it.
-  // How: Join lines: "Quality gate failed: `{command}`", blank, fenced code
-  //      Block with output, blank, instruction to fix and commit.
-
-  // TODO: Implement
-  throw new Error("Not implemented");
-};
+export const buildGateFixMessage = (command: GateCommand, output: string): string =>
+  [
+    `Quality gate failed: \`${String(command)}\``,
+    "",
+    "```",
+    output,
+    "```",
+    "",
+    "Please fix the issue and commit the fix.",
+  ].join("\n");

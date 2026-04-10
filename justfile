@@ -13,21 +13,21 @@ fix: fmt lint-fix
 
 # Format all source files (write in place)
 fmt:
-    oxfmt --write '.pi/extensions/pi-cleanup/src/**/*.ts'
+    oxfmt --write 'src/**/*.ts'
     rumdl fmt *.md
 
 # Check formatting without writing
 fmt-check:
-    oxfmt --check '.pi/extensions/pi-cleanup/src/**/*.ts'
+    oxfmt --check 'src/**/*.ts'
     rumdl check *.md
 
 # Lint with all auto-fixes applied
 lint-fix:
-    oxlint --fix --fix-suggestions '.pi/extensions/pi-cleanup/src/'
+    oxlint --fix --fix-suggestions 'src/'
 
 # Lint all source files (check only, deny warnings)
 lint:
-    oxlint --deny-warnings '.pi/extensions/pi-cleanup/src/'
+    oxlint --deny-warnings 'src/'
 
 # Type-check only (no emit)
 typecheck:

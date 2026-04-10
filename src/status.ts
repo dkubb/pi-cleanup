@@ -9,6 +9,7 @@
  */
 
 import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Match } from "effect";
 
 import type { CleanupState } from "./state-machine.js";
 
@@ -30,8 +31,8 @@ export const STATUS_KEY = "cleanup" as const;
  * - `AwaitingUserInput`: shows a muted "stalled" message.
  * - `Disabled`: shows a muted "off" message.
  *
- * @param _ctx - The extension context (provides `ui.setStatus` and `ui.theme`).
- * @param _state - The current cleanup state to render.
+ * @param ctx - The extension context (provides `ui.setStatus` and `ui.theme`).
+ * @param state - The current cleanup state to render.
  *
  * @example
  * ```ts
@@ -44,27 +45,22 @@ export const STATUS_KEY = "cleanup" as const;
  * // ctx.ui.setStatus("cleanup", "🔧 dirty tree (attempt 2)") was called
  * ```
  */
-export const updateStatus = (_ctx: ExtensionContext, _state: CleanupState): void => {
-  // What: Render the cleanup state as a footer status indicator.
-  // Why: Gives the user visibility into what the cleanup extension is doing
-  //      Without cluttering the main conversation.
-  // How: import { Match } from "effect";
-  //      Match.value(state).pipe(
-  //        Match.tag("Idle", () => undefined),
-  //        Match.tag("WaitingForTreeFix", (s) =>
-  //          Ctx.ui.theme.fg("warning", `🔧 dirty tree (attempt ${s.attempts})`)),
-  //        Match.tag("WaitingForGateFix", (s) =>
-  //          Ctx.ui.theme.fg("warning", `🔧 gate failed (attempt ${s.attempts})`)),
-  //        Match.tag("WaitingForFactoring", (s) =>
-  //          Ctx.ui.theme.fg("warning", `🔧 factoring (attempt ${s.attempts})`)),
-  //        Match.tag("AwaitingUserInput", () =>
-  //          Ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
-  //        Match.tag("Disabled", () =>
-  //          Ctx.ui.theme.fg("muted", "cleanup off")),
-  //        Match.exhaustive,
-  //      );
-  //      Then: ctx.ui.setStatus(STATUS_KEY, text);
+export const updateStatus = (ctx: ExtensionContext, state: CleanupState): void => {
+  const text: string | undefined = Match.value(state).pipe(
+    Match.tag("Idle", (): undefined => undefined),
+    Match.tag("WaitingForTreeFix", (s): string =>
+      ctx.ui.theme.fg("warning", `🔧 dirty tree (attempt ${String(s.attempts)})`),
+    ),
+    Match.tag("WaitingForGateFix", (s): string =>
+      ctx.ui.theme.fg("warning", `🔧 gate failed (attempt ${String(s.attempts)})`),
+    ),
+    Match.tag("WaitingForFactoring", (s): string =>
+      ctx.ui.theme.fg("warning", `🔧 factoring (attempt ${String(s.attempts)})`),
+    ),
+    Match.tag("AwaitingUserInput", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
+    Match.tag("Disabled", (): string => ctx.ui.theme.fg("muted", "cleanup off")),
+    Match.exhaustive,
+  );
 
-  // TODO: Implement
-  throw new Error("Not implemented");
+  ctx.ui.setStatus(STATUS_KEY, text);
 };

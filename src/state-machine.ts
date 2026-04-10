@@ -11,9 +11,16 @@
  * @module
  */
 
-import { Data, Match } from "effect";
+import { Data, Match, Schema } from "effect";
 
-import type { AttemptCount, AwaitingReason, CommitSHA, GateCommand } from "./types.js";
+import {
+  type AttemptCount,
+  AttemptCount as AttemptCountSchema,
+  AwaitingReason,
+  type CommitSHA,
+  type GateCommand,
+  incrementAttempt,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // TransitionEvent Type
@@ -158,66 +165,134 @@ export const isActionable: (state: CleanupState) => boolean = Match.type<Cleanup
 // Transition Function
 // ---------------------------------------------------------------------------
 
+/** Decode 1 as an AttemptCount (first attempt from Idle). */
+const FIRST_ATTEMPT: AttemptCount = Schema.decodeUnknownSync(AttemptCountSchema)(1);
+
+/** Context for a WaitingFor* → event transition. */
+interface WaitingContext {
+  readonly state: CleanupState;
+  readonly event: TransitionEvent;
+  readonly phase: string;
+  readonly attempts: AttemptCount;
+}
+
+/**
+ * Handle a transition event from an actionable WaitingFor* state.
+ *
+ * @param ctx - The waiting state context.
+ * @returns The new cleanup state.
+ */
+const transitionFromWaiting = (ctx: WaitingContext): CleanupState =>
+  Match.value(ctx.event).pipe(
+    Match.tag("GitDirty", () =>
+      CleanupState.WaitingForTreeFix({ attempts: incrementAttempt(ctx.attempts) }),
+    ),
+    Match.tag("GitClean", () => CleanupState.Idle()),
+    Match.tag("NotARepo", () => CleanupState.Idle()),
+    Match.tag("GateFailed", (e) =>
+      CleanupState.WaitingForGateFix({
+        attempts: incrementAttempt(ctx.attempts),
+        failedGate: e.command,
+      }),
+    ),
+    Match.tag("GatesPassed", () => CleanupState.Idle()),
+    Match.tag("NoGateConfig", () =>
+      CleanupState.AwaitingUserInput({ reason: AwaitingReason.GatesUnconfigured() }),
+    ),
+    Match.tag("NeedsFactoring", (e) =>
+      CleanupState.WaitingForFactoring({
+        attempts: incrementAttempt(ctx.attempts),
+        priorHeadSHA: e.headSHA,
+      }),
+    ),
+    Match.tag("FactoringConverged", () => CleanupState.Idle()),
+    Match.tag("Atomic", () => CleanupState.Idle()),
+    Match.tag("NoBase", () => CleanupState.Idle()),
+    Match.tag("Indeterminate", () => CleanupState.Idle()),
+    Match.tag("MaxAttemptsExceeded", () =>
+      CleanupState.AwaitingUserInput({
+        reason: AwaitingReason.Stalled({ attempts: ctx.attempts, phase: ctx.phase }),
+      }),
+    ),
+    Match.tag("UserDisabled", () => CleanupState.Disabled()),
+    Match.tag("SessionStarted", () => CleanupState.Idle()),
+    Match.tag("UserEnabled", () => ctx.state),
+    Match.tag("UserResumed", () => ctx.state),
+    Match.tag("GatesConfigured", () => ctx.state),
+    Match.exhaustive,
+  );
+
+/**
+ * Handle a transition event from the Idle state.
+ *
+ * @param event - The transition event to process.
+ * @returns The new cleanup state.
+ */
+const transitionFromIdle = (event: TransitionEvent): CleanupState =>
+  Match.value(event).pipe(
+    Match.tag("GitDirty", () => CleanupState.WaitingForTreeFix({ attempts: FIRST_ATTEMPT })),
+    Match.tag("GitClean", () => CleanupState.Idle()),
+    Match.tag("NotARepo", () => CleanupState.Idle()),
+    Match.tag("GateFailed", (e) =>
+      CleanupState.WaitingForGateFix({ attempts: FIRST_ATTEMPT, failedGate: e.command }),
+    ),
+    Match.tag("GatesPassed", () => CleanupState.Idle()),
+    Match.tag("NoGateConfig", () =>
+      CleanupState.AwaitingUserInput({ reason: AwaitingReason.GatesUnconfigured() }),
+    ),
+    Match.tag("NeedsFactoring", (e) =>
+      CleanupState.WaitingForFactoring({ attempts: FIRST_ATTEMPT, priorHeadSHA: e.headSHA }),
+    ),
+    Match.tag("FactoringConverged", () => CleanupState.Idle()),
+    Match.tag("Atomic", () => CleanupState.Idle()),
+    Match.tag("NoBase", () => CleanupState.Idle()),
+    Match.tag("Indeterminate", () => CleanupState.Idle()),
+    Match.tag("MaxAttemptsExceeded", () => CleanupState.Idle()),
+    Match.tag("UserDisabled", () => CleanupState.Disabled()),
+    Match.tag("SessionStarted", () => CleanupState.Idle()),
+    Match.tag("UserEnabled", () => CleanupState.Idle()),
+    Match.tag("UserResumed", () => CleanupState.Idle()),
+    Match.tag("GatesConfigured", () => CleanupState.Idle()),
+    Match.exhaustive,
+  );
+
 /**
  * Pure state transition function for the cleanup state machine.
  *
- * Maps (state, event) → new state. Does not perform side effects
- * (no sendUserMessage, no pi.exec). The handler reads the new state
- * and decides what action to take.
+ * Maps (state, event) → new state. Does not perform side effects.
+ * The handler reads the new state and decides what action to take.
  *
- * For pipeline events like GitClean and GatesPassed, the function
- * returns Idle as a no-op — the handler continues evaluating the
- * next phase rather than assigning this intermediate state.
- *
- * Uses Match.exhaustive — adding a new CleanupState or TransitionEvent
- * variant without handling it here produces a compile error.
- *
- * @param _state - The current cleanup state.
- * @param _event - The transition event to process.
+ * @param state - The current cleanup state.
+ * @param event - The transition event to process.
  * @returns The new cleanup state after applying the event.
- *
- * @example
- * ```ts
- * // Dirty tree from idle → waiting for fix
- * const next = transition(
- *   CleanupState.Idle(),
- *   TransitionEvent.GitDirty({ porcelain: "M foo.ts" }),
- * );
- * assert(next._tag === "WaitingForTreeFix");
- *
- * // Disabled state ignores pipeline events
- * const same = transition(
- *   CleanupState.Disabled(),
- *   TransitionEvent.GitDirty({ porcelain: "M foo.ts" }),
- * );
- * assert(same._tag === "Disabled");
- * ```
  */
-export const transition = (_state: CleanupState, _event: TransitionEvent): CleanupState => {
-  // What: Map (state, event) → new state using exhaustive pattern matching.
-  //
-  // Why: A pure transition function keeps state logic testable and separates
-  //      It from side effects. Match.exhaustive ensures every state×event
-  //      Combination is handled at compile time.
-  //
-  // How: Outer match on state._tag, inner match on event._tag.
-  //
-  //      For actionable states (Idle, WaitingFor*):
-  //      - Pipeline events create the appropriate next state.
-  //      - From Idle, new attempts start at 1.
-  //      - From WaitingFor*, attempts use incrementAttempt(state.attempts).
-  //      - UserDisabled → Disabled from any state.
-  //      - SessionStarted → Idle from any state.
-  //
-  //      For inactive states (AwaitingUserInput, Disabled):
-  //      - Pipeline events are no-ops (return current state).
-  //      - UserEnabled → Idle (from Disabled only).
-  //      - UserResumed → Idle (from AwaitingUserInput only).
-  //      - GatesConfigured → Idle (from AwaitingUserInput/GatesUnconfigured).
-  //
-  //      Special: MaxAttemptsExceeded → AwaitingUserInput(Stalled(...))
-  //      From any WaitingFor* state. Impossible from Idle (no-op).
-
-  // TODO: Implement with Match.value(state).pipe(Match.tag(...), Match.exhaustive)
-  throw new Error("Not implemented");
-};
+export const transition = (state: CleanupState, event: TransitionEvent): CleanupState =>
+  Match.value(state).pipe(
+    Match.tag("Idle", () => transitionFromIdle(event)),
+    Match.tag("WaitingForTreeFix", (s) =>
+      transitionFromWaiting({ attempts: s.attempts, event, phase: "WaitingForTreeFix", state }),
+    ),
+    Match.tag("WaitingForGateFix", (s) =>
+      transitionFromWaiting({ attempts: s.attempts, event, phase: "WaitingForGateFix", state }),
+    ),
+    Match.tag("WaitingForFactoring", (s) =>
+      transitionFromWaiting({ attempts: s.attempts, event, phase: "WaitingForFactoring", state }),
+    ),
+    Match.tag("AwaitingUserInput", () =>
+      Match.value(event).pipe(
+        Match.tag("UserResumed", () => CleanupState.Idle()),
+        Match.tag("GatesConfigured", () => CleanupState.Idle()),
+        Match.tag("UserDisabled", () => CleanupState.Disabled()),
+        Match.tag("SessionStarted", () => CleanupState.Idle()),
+        Match.orElse(() => state),
+      ),
+    ),
+    Match.tag("Disabled", () =>
+      Match.value(event).pipe(
+        Match.tag("UserEnabled", () => CleanupState.Idle()),
+        Match.tag("SessionStarted", () => CleanupState.Idle()),
+        Match.orElse(() => state),
+      ),
+    ),
+    Match.exhaustive,
+  );
