@@ -73,7 +73,8 @@ const getAttempts = (state: CleanupState): AttemptCount =>
  * Check whether the pipeline should be skipped entirely.
  *
  * Skips when the state machine is not actionable (Disabled or
- * AwaitingUserInput) or when boomerang is mid-collapse.
+ * AwaitingUserInput), when boomerang is mid-collapse, or when
+ * no file-mutating tools have run since the last completed cycle.
  *
  * @param runtime - The runtime state to check.
  * @returns True if the pipeline should not run.
@@ -81,6 +82,7 @@ const getAttempts = (state: CleanupState): AttemptCount =>
 const shouldSkip = (runtime: RuntimeState): boolean =>
   !isActionable(runtime.cleanup) ||
   runtime.cycleComplete ||
+  !runtime.mutationDetected ||
   globalThis.__boomerangCollapseInProgress === true;
 
 /**
@@ -128,6 +130,7 @@ const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
 
   runtime.evalPending = false;
   runtime.cycleComplete = true;
+  runtime.mutationDetected = false;
   runtime.cycleActions.push("Verified task completion");
   collapseBoomerangIfNeeded(pi, runtime);
 };

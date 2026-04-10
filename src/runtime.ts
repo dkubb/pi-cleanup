@@ -36,6 +36,8 @@ export interface RuntimeState {
   cycleBaseSHA: Option.Option<CommitSHA>;
   /** Actions taken during this cleanup cycle, for the collapse summary. */
   cycleActions: string[];
+  /** Whether a file-mutating tool ran since the last completed cycle. */
+  mutationDetected: boolean;
 }
 
 /**
@@ -53,4 +55,5 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   evalPending: false,
   gateConfig: Option.none(),
   lastCleanCommitSHA: Option.none(),
+  mutationDetected: true,
 });

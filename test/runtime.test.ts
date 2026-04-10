@@ -49,4 +49,9 @@ describe("createInitialRuntimeState", () => {
     const runtime = createInitialRuntimeState();
     expect(runtime.cycleActions).toStrictEqual([]);
   });
+
+  it("returns true for mutationDetected", () => {
+    const runtime = createInitialRuntimeState();
+    expect(runtime.mutationDetected).toStrictEqual(true);
+  });
 });

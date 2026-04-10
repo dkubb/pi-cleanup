@@ -21,6 +21,13 @@ import { updateStatus } from "./status.js";
 import { AwaitingReason } from "./types.js";
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Tool names that may mutate files and should trigger a cleanup cycle. */
+const MUTATION_TOOLS = new Set(["bash", "edit", "write"]);
+
+// ---------------------------------------------------------------------------
 // Boomerang Coexistence
 // ---------------------------------------------------------------------------
 
@@ -49,6 +56,7 @@ const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.cycleComplete = false;
   runtime.cycleBaseSHA = Option.none();
   runtime.cycleActions = [];
+  runtime.mutationDetected = true;
 };
 
 /** Minimal entry shape for session restoration. */
@@ -139,6 +147,12 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
       runtime.evalPending = false;
       runtime.cycleBaseSHA = Option.none();
       runtime.cycleActions = [];
+    }
+  });
+
+  pi.on("tool_call", (event) => {
+    if (MUTATION_TOOLS.has(event.toolName)) {
+      runtime.mutationDetected = true;
     }
   });
 
