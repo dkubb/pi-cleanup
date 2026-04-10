@@ -1,2 +1,4 @@
 node_modules/
 TASKS.png
+test-rpc-driver.sh
+coverage/
