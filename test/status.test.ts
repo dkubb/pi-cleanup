@@ -73,6 +73,6 @@ describe("updateStatus", () => {
 
 describe("STATUS_KEY", () => {
   it('equals "cleanup"', () => {
-    expect(STATUS_KEY).toBe("cleanup");
+    expect(STATUS_KEY).toStrictEqual("cleanup");
   });
 });

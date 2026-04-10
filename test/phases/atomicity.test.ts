@@ -39,9 +39,9 @@ describe("getDefaultBaseSHA", () => {
       "merge-base HEAD main": { code: 0, stdout: sha1 + "\n" },
     });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isSome(result)).toBe(true);
+    expect(Option.isSome(result)).toStrictEqual(true);
     if (Option.isSome(result)) {
-      expect(result.value).toBe(sha1);
+      expect(result.value).toStrictEqual(sha1);
     }
   });
 
@@ -50,9 +50,9 @@ describe("getDefaultBaseSHA", () => {
       "merge-base HEAD master": { code: 0, stdout: sha2 + "\n" },
     });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isSome(result)).toBe(true);
+    expect(Option.isSome(result)).toStrictEqual(true);
     if (Option.isSome(result)) {
-      expect(result.value).toBe(sha2);
+      expect(result.value).toStrictEqual(sha2);
     }
   });
 
@@ -61,16 +61,16 @@ describe("getDefaultBaseSHA", () => {
       "merge-base HEAD develop": { code: 0, stdout: sha3 + "\n" },
     });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isSome(result)).toBe(true);
+    expect(Option.isSome(result)).toStrictEqual(true);
     if (Option.isSome(result)) {
-      expect(result.value).toBe(sha3);
+      expect(result.value).toStrictEqual(sha3);
     }
   });
 
   it("returns None when no default branches exist", async () => {
     const exec: ExecFn = async () => ({ code: 1, stdout: "", stderr: "not found" });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isNone(result)).toBe(true);
+    expect(Option.isNone(result)).toStrictEqual(true);
   });
 
   it("prefers main over master (returns main when both exist)", async () => {
@@ -79,9 +79,9 @@ describe("getDefaultBaseSHA", () => {
       "merge-base HEAD master": { code: 0, stdout: sha2 + "\n" },
     });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isSome(result)).toBe(true);
+    expect(Option.isSome(result)).toStrictEqual(true);
     if (Option.isSome(result)) {
-      expect(result.value).toBe(sha1);
+      expect(result.value).toStrictEqual(sha1);
     }
   });
 
@@ -91,16 +91,16 @@ describe("getDefaultBaseSHA", () => {
       "merge-base HEAD develop": { code: 0, stdout: sha3 + "\n" },
     });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isSome(result)).toBe(true);
+    expect(Option.isSome(result)).toStrictEqual(true);
     if (Option.isSome(result)) {
-      expect(result.value).toBe(sha2);
+      expect(result.value).toStrictEqual(sha2);
     }
   });
 
   it("returns None when merge-base returns invalid SHA", async () => {
     const exec: ExecFn = async () => ({ code: 0, stdout: "not-a-sha\n", stderr: "" });
     const result = await getDefaultBaseSHA(exec);
-    expect(Option.isNone(result)).toBe(true);
+    expect(Option.isNone(result)).toStrictEqual(true);
   });
 
   it("calls git merge-base HEAD <branch>", async () => {
@@ -124,19 +124,19 @@ describe("checkAtomicity — Indeterminate", () => {
   it("returns Indeterminate when rev-parse HEAD fails", async () => {
     const exec: ExecFn = async () => ({ code: 1, stdout: "", stderr: "fatal" });
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("Indeterminate");
+    expect(result._tag).toStrictEqual("Indeterminate");
   });
 
   it("returns Indeterminate when HEAD SHA is invalid", async () => {
     const exec: ExecFn = async () => ({ code: 0, stdout: "not-a-sha\n", stderr: "" });
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("Indeterminate");
+    expect(result._tag).toStrictEqual("Indeterminate");
   });
 
   it("returns Indeterminate when stdout is empty", async () => {
     const exec: ExecFn = async () => ({ code: 0, stdout: "", stderr: "" });
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("Indeterminate");
+    expect(result._tag).toStrictEqual("Indeterminate");
   });
 });
 
@@ -152,9 +152,9 @@ describe("checkAtomicity — NoBase", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("NoBase");
+    expect(result._tag).toStrictEqual("NoBase");
     if (result._tag === "NoBase") {
-      expect(result.headSHA).toBe(sha1);
+      expect(result.headSHA).toStrictEqual(sha1);
     }
   });
 });
@@ -169,7 +169,7 @@ describe("checkAtomicity — empty tree fallback", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("Atomic");
+    expect(result._tag).toStrictEqual("Atomic");
   });
 
   it("returns NeedsFactoring with empty tree base when multiple commits", async () => {
@@ -180,9 +180,9 @@ describe("checkAtomicity — empty tree fallback", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("NeedsFactoring");
+    expect(result._tag).toStrictEqual("NeedsFactoring");
     if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toBe(5);
+      expect(result.commitCount).toStrictEqual(5);
     }
   });
 });
@@ -199,9 +199,9 @@ describe("checkAtomicity — Atomic", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toBe("Atomic");
+    expect(result._tag).toStrictEqual("Atomic");
     if (result._tag === "Atomic") {
-      expect(result.headSHA).toBe(sha1);
+      expect(result.headSHA).toStrictEqual(sha1);
     }
   });
 
@@ -212,7 +212,7 @@ describe("checkAtomicity — Atomic", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toBe("Atomic");
+    expect(result._tag).toStrictEqual("Atomic");
   });
 
   it("returns Atomic when rev-list output is not a number", async () => {
@@ -222,7 +222,7 @@ describe("checkAtomicity — Atomic", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toBe("Atomic");
+    expect(result._tag).toStrictEqual("Atomic");
   });
 
   it("uses lastCleanSHA as base when provided (skips merge-base)", async () => {
@@ -251,11 +251,11 @@ describe("checkAtomicity — NeedsFactoring", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toBe("NeedsFactoring");
+    expect(result._tag).toStrictEqual("NeedsFactoring");
     if (result._tag === "NeedsFactoring") {
-      expect(result.headSHA).toBe(sha1);
-      expect(result.baseSHA).toBe(sha2);
-      expect(result.commitCount).toBe(2);
+      expect(result.headSHA).toStrictEqual(sha1);
+      expect(result.baseSHA).toStrictEqual(sha2);
+      expect(result.commitCount).toStrictEqual(2);
     }
   });
 
@@ -266,9 +266,9 @@ describe("checkAtomicity — NeedsFactoring", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toBe("NeedsFactoring");
+    expect(result._tag).toStrictEqual("NeedsFactoring");
     if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toBe(10);
+      expect(result.commitCount).toStrictEqual(10);
     }
   });
 
@@ -280,9 +280,9 @@ describe("checkAtomicity — NeedsFactoring", () => {
       return { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("NeedsFactoring");
+    expect(result._tag).toStrictEqual("NeedsFactoring");
     if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toBe(3);
+      expect(result.commitCount).toStrictEqual(3);
     }
   });
 
@@ -318,7 +318,7 @@ describe("buildFactorMessage", () => {
   it("returns the exact message with no gate commands", () => {
     const msg = buildFactorMessage(sha1, sha2, []);
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [...expected, "Use `--exec ''` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
         "\n",
       ),
@@ -328,7 +328,7 @@ describe("buildFactorMessage", () => {
   it("returns the exact message with a single gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test")]);
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [...expected, "Use `--exec 'npm test'` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
         "\n",
       ),
@@ -338,7 +338,7 @@ describe("buildFactorMessage", () => {
   it("joins multiple gate commands with &&", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test"), cmd("npm run lint")]);
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [
         ...expected,
         "Use `--exec 'npm test && npm run lint'` as the validation gate.",

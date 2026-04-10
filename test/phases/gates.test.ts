@@ -29,13 +29,13 @@ describe("runGates — all passed", () => {
   it("returns AllPassed when single command succeeds", async () => {
     const config = makeConfig([cmd("true")]);
     const result = await runGates(passExec, config);
-    expect(result._tag).toBe("AllPassed");
+    expect(result._tag).toStrictEqual("AllPassed");
   });
 
   it("returns AllPassed when all commands succeed", async () => {
     const config = makeConfig([cmd("npm test"), cmd("npm run lint"), cmd("npm run build")]);
     const result = await runGates(passExec, config);
-    expect(result._tag).toBe("AllPassed");
+    expect(result._tag).toStrictEqual("AllPassed");
   });
 
   it("calls exec with bash -c <command> for each gate", async () => {
@@ -49,9 +49,9 @@ describe("runGates — all passed", () => {
     await runGates(trackingExec, config);
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]!.cmd).toBe("bash");
+    expect(calls[0]!.cmd).toStrictEqual("bash");
     expect(calls[0]!.args).toEqual(["-c", "npm test"]);
-    expect(calls[1]!.cmd).toBe("bash");
+    expect(calls[1]!.cmd).toStrictEqual("bash");
     expect(calls[1]!.args).toEqual(["-c", "npm run lint"]);
   });
 
@@ -77,10 +77,10 @@ describe("runGates — failure", () => {
   it("returns Failed with command and output when gate fails", async () => {
     const config = makeConfig([cmd("npm test")]);
     const result = await runGates(failExec, config);
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.command).toBe("npm test");
-      expect(result.output).toBe("FAIL\ndetails");
+      expect(result.command).toStrictEqual("npm test");
+      expect(result.output).toStrictEqual("FAIL\ndetails");
     }
   });
 
@@ -88,9 +88,9 @@ describe("runGates — failure", () => {
     const exec: ExecFn = makeExec({ code: 1, stdout: "stdout content", stderr: "stderr content" });
     const config = makeConfig([cmd("npm test")]);
     const result = await runGates(exec, config);
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.output).toBe("stdout content\nstderr content");
+      expect(result.output).toStrictEqual("stdout content\nstderr content");
     }
   });
 
@@ -107,8 +107,8 @@ describe("runGates — failure", () => {
     const config = makeConfig([cmd("npm test"), cmd("npm run lint"), cmd("npm run build")]);
     const result = await runGates(partialFailExec, config);
 
-    expect(result._tag).toBe("Failed");
-    expect(callCount).toBe(1);
+    expect(result._tag).toStrictEqual("Failed");
+    expect(callCount).toStrictEqual(1);
   });
 
   it("returns the first failing command, not a later one", async () => {
@@ -124,20 +124,20 @@ describe("runGates — failure", () => {
     const config = makeConfig([cmd("npm test"), cmd("npm run lint"), cmd("npm run build")]);
     const result = await runGates(failSecondExec, config);
 
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.command).toBe("npm run lint");
+      expect(result.command).toStrictEqual("npm run lint");
     }
-    expect(callCount).toBe(2);
+    expect(callCount).toStrictEqual(2);
   });
 
   it("handles only stderr in output (no stdout)", async () => {
     const exec: ExecFn = makeExec({ code: 1, stdout: "", stderr: "stderr only" });
     const config = makeConfig([cmd("npm test")]);
     const result = await runGates(exec, config);
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.output).toBe("stderr only");
+      expect(result.output).toStrictEqual("stderr only");
     }
   });
 
@@ -145,9 +145,9 @@ describe("runGates — failure", () => {
     const exec: ExecFn = makeExec({ code: 1, stdout: "stdout only", stderr: "" });
     const config = makeConfig([cmd("npm test")]);
     const result = await runGates(exec, config);
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.output).toBe("stdout only");
+      expect(result.output).toStrictEqual("stdout only");
     }
   });
 
@@ -155,9 +155,9 @@ describe("runGates — failure", () => {
     const exec: ExecFn = makeExec({ code: 1, stdout: "", stderr: "" });
     const config = makeConfig([cmd("npm test")]);
     const result = await runGates(exec, config);
-    expect(result._tag).toBe("Failed");
+    expect(result._tag).toStrictEqual("Failed");
     if (result._tag === "Failed") {
-      expect(result.output).toBe("");
+      expect(result.output).toStrictEqual("");
     }
   });
 });
@@ -192,7 +192,7 @@ describe("buildGateFixMessage", () => {
   it("returns the exact expected message with command and output", () => {
     const msg = buildGateFixMessage(cmd("npm test"), "FAIL: 2 tests");
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [
         "Quality gate failed: `npm test`",
         "",
@@ -208,7 +208,7 @@ describe("buildGateFixMessage", () => {
   it("works with multi-line output", () => {
     const msg = buildGateFixMessage(cmd("just check"), "line 1\nline 2");
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [
         "Quality gate failed: `just check`",
         "",

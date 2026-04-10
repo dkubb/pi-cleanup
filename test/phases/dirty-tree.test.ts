@@ -24,19 +24,19 @@ describe("isGitRepo", () => {
   it("returns true when git rev-parse --git-dir exits with code 0", async () => {
     const exec = makeExec({ code: 0, stdout: ".git", stderr: "" });
     const result = await isGitRepo(exec);
-    expect(result).toBe(true);
+    expect(result).toStrictEqual(true);
   });
 
   it("returns false when git rev-parse --git-dir exits with non-zero code", async () => {
     const exec = makeExec({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
     const result = await isGitRepo(exec);
-    expect(result).toBe(false);
+    expect(result).toStrictEqual(false);
   });
 
   it("returns false when exit code is 1", async () => {
     const exec = makeExec({ code: 1, stdout: "", stderr: "error" });
     const result = await isGitRepo(exec);
-    expect(result).toBe(false);
+    expect(result).toStrictEqual(false);
   });
 
   it("calls exec with correct git rev-parse arguments", async () => {
@@ -49,7 +49,7 @@ describe("isGitRepo", () => {
     await isGitRepo(trackingExec);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.cmd).toBe("git");
+    expect(calls[0]!.cmd).toStrictEqual("git");
     expect(calls[0]!.args).toEqual(["rev-parse", "--git-dir"]);
   });
 });
@@ -61,19 +61,19 @@ describe("isGitRepo", () => {
 describe("checkGitStatus", () => {
   it("returns Clean when stdout is empty", async () => {
     const result = await checkGitStatus(execClean);
-    expect(result._tag).toBe("Clean");
+    expect(result._tag).toStrictEqual("Clean");
   });
 
   it("returns Clean when stdout is only whitespace", async () => {
     const result = await checkGitStatus(execCleanWhitespace);
-    expect(result._tag).toBe("Clean");
+    expect(result._tag).toStrictEqual("Clean");
   });
 
   it("returns Dirty with trimmed porcelain output", async () => {
     const result = await checkGitStatus(execDirty);
-    expect(result._tag).toBe("Dirty");
+    expect(result._tag).toStrictEqual("Dirty");
     if (result._tag === "Dirty") {
-      expect(result.porcelain).toBe("M  foo.ts\n?? bar.ts");
+      expect(result.porcelain).toStrictEqual("M  foo.ts\n?? bar.ts");
     }
   });
 
@@ -81,26 +81,26 @@ describe("checkGitStatus", () => {
     const porcelain = " M staged.ts\n?? untracked.ts\nD  deleted.ts";
     const exec = makeExec({ code: 0, stdout: porcelain, stderr: "" });
     const result = await checkGitStatus(exec);
-    expect(result._tag).toBe("Dirty");
+    expect(result._tag).toStrictEqual("Dirty");
     if (result._tag === "Dirty") {
-      expect(result.porcelain).toBe(porcelain.trim());
+      expect(result.porcelain).toStrictEqual(porcelain.trim());
     }
   });
 
   it("returns NotARepo when exit code is 128", async () => {
     const result = await checkGitStatus(execNotARepo128);
-    expect(result._tag).toBe("NotARepo");
+    expect(result._tag).toStrictEqual("NotARepo");
   });
 
   it("returns NotARepo when exit code is 1 (any non-zero)", async () => {
     const result = await checkGitStatus(execNotARepo1);
-    expect(result._tag).toBe("NotARepo");
+    expect(result._tag).toStrictEqual("NotARepo");
   });
 
   it("returns NotARepo when exit code is 2", async () => {
     const exec = makeExec({ code: 2, stdout: "", stderr: "some error" });
     const result = await checkGitStatus(exec);
-    expect(result._tag).toBe("NotARepo");
+    expect(result._tag).toStrictEqual("NotARepo");
   });
 
   it("calls exec with correct git arguments", async () => {
@@ -113,16 +113,16 @@ describe("checkGitStatus", () => {
     await checkGitStatus(trackingExec);
 
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.cmd).toBe("git");
+    expect(calls[0]!.cmd).toStrictEqual("git");
     expect(calls[0]!.args).toEqual(["status", "--porcelain=v1"]);
   });
 
   it("trims leading/trailing whitespace from porcelain output", async () => {
     const exec = makeExec({ code: 0, stdout: "\nM foo.ts\n", stderr: "" });
     const result = await checkGitStatus(exec);
-    expect(result._tag).toBe("Dirty");
+    expect(result._tag).toStrictEqual("Dirty");
     if (result._tag === "Dirty") {
-      expect(result.porcelain).toBe("M foo.ts");
+      expect(result.porcelain).toStrictEqual("M foo.ts");
     }
   });
 });
@@ -135,7 +135,7 @@ describe("buildDirtyTreeMessage", () => {
   it("returns the exact expected message with porcelain in a code block", () => {
     const msg = buildDirtyTreeMessage("M foo.ts\n?? bar.ts");
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [
         "All quality gates pass. There are uncommitted changes in the working tree.",
         "Please stage and commit all changes using proper conventional commit format.",
@@ -151,7 +151,7 @@ describe("buildDirtyTreeMessage", () => {
   it("works with single-file porcelain", () => {
     const msg = buildDirtyTreeMessage("A new.ts");
 
-    expect(msg).toBe(
+    expect(msg).toStrictEqual(
       [
         "All quality gates pass. There are uncommitted changes in the working tree.",
         "Please stage and commit all changes using proper conventional commit format.",

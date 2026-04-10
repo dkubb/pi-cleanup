@@ -48,11 +48,11 @@ const multiCmdConfig: GateConfig = {
 
 describe("entry type constants", () => {
   it("ENTRY_TYPE_GATES is the correct string", () => {
-    expect(ENTRY_TYPE_GATES).toBe("pi-cleanup-gates");
+    expect(ENTRY_TYPE_GATES).toStrictEqual("pi-cleanup-gates");
   });
 
   it("ENTRY_TYPE_COMMIT is the correct string", () => {
-    expect(ENTRY_TYPE_COMMIT).toBe("pi-cleanup-commit");
+    expect(ENTRY_TYPE_COMMIT).toStrictEqual("pi-cleanup-commit");
   });
 });
 
@@ -70,7 +70,7 @@ describe("persistGateConfig", () => {
   it("uses ENTRY_TYPE_GATES as the custom type", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, singleCmdConfig);
-    expect(calls[0]!.type).toBe(ENTRY_TYPE_GATES);
+    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
   });
 
   it("serializes commands as plain strings", () => {
@@ -91,14 +91,14 @@ describe("persistGateConfig", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, singleCmdConfig);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["description"]).toBe("Run tests");
+    expect(data["description"]).toStrictEqual("Run tests");
   });
 
   it("preserves description from multi-command config", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, multiCmdConfig);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["description"]).toBe("Full CI pipeline");
+    expect(data["description"]).toStrictEqual("Full CI pipeline");
   });
 
   it("does not include a cleared field", () => {
@@ -115,7 +115,7 @@ describe("persistGateConfig", () => {
     const commands = data["commands"] as unknown[];
     // Each command should be a plain string, not an object
     for (const c of commands) {
-      expect(typeof c).toBe("string");
+      expect(typeof c).toStrictEqual("string");
     }
   });
 });
@@ -134,14 +134,14 @@ describe("persistGatesClear", () => {
   it("uses ENTRY_TYPE_GATES as the custom type", () => {
     const { fn, calls } = makeAppend();
     persistGatesClear(fn);
-    expect(calls[0]!.type).toBe(ENTRY_TYPE_GATES);
+    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
   });
 
   it("sets cleared to true", () => {
     const { fn, calls } = makeAppend();
     persistGatesClear(fn);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["cleared"]).toBe(true);
+    expect(data["cleared"]).toStrictEqual(true);
   });
 
   it("does not include a commands field", () => {
@@ -173,22 +173,22 @@ describe("persistCleanCommit", () => {
   it("uses ENTRY_TYPE_COMMIT as the custom type", () => {
     const { fn, calls } = makeAppend();
     persistCleanCommit(fn, sha1);
-    expect(calls[0]!.type).toBe(ENTRY_TYPE_COMMIT);
+    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_COMMIT);
   });
 
   it("serializes SHA as a plain string in sha field", () => {
     const { fn, calls } = makeAppend();
     persistCleanCommit(fn, sha1);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(typeof data["sha"]).toBe("string");
-    expect(data["sha"]).toBe("a".repeat(40));
+    expect(typeof data["sha"]).toStrictEqual("string");
+    expect(data["sha"]).toStrictEqual("a".repeat(40));
   });
 
   it("serializes different SHAs correctly", () => {
     const { fn, calls } = makeAppend();
     persistCleanCommit(fn, sha2);
     const data = calls[0]!.data as Record<string, unknown>;
-    expect(data["sha"]).toBe("f".repeat(40));
+    expect(data["sha"]).toStrictEqual("f".repeat(40));
   });
 
   it("data contains only the sha field", () => {
@@ -209,8 +209,8 @@ describe("multiple persistence calls are independent", () => {
     persistGateConfig(fn, singleCmdConfig);
     persistGateConfig(fn, multiCmdConfig);
     expect(calls).toHaveLength(2);
-    expect(calls[0]!.type).toBe(ENTRY_TYPE_GATES);
-    expect(calls[1]!.type).toBe(ENTRY_TYPE_GATES);
+    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
+    expect(calls[1]!.type).toStrictEqual(ENTRY_TYPE_GATES);
   });
 
   it("mixed persistence calls each produce one entry", () => {
@@ -219,8 +219,8 @@ describe("multiple persistence calls are independent", () => {
     persistGatesClear(fn);
     persistCleanCommit(fn, sha1);
     expect(calls).toHaveLength(3);
-    expect(calls[0]!.type).toBe(ENTRY_TYPE_GATES);
-    expect(calls[1]!.type).toBe(ENTRY_TYPE_GATES);
-    expect(calls[2]!.type).toBe(ENTRY_TYPE_COMMIT);
+    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
+    expect(calls[1]!.type).toStrictEqual(ENTRY_TYPE_GATES);
+    expect(calls[2]!.type).toStrictEqual(ENTRY_TYPE_COMMIT);
   });
 });

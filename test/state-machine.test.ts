@@ -33,7 +33,7 @@ const attempt3 = Schema.decodeUnknownSync(AttemptCount)(3);
 
 describe("INITIAL_STATE", () => {
   it("is Idle", () => {
-    expect(INITIAL_STATE._tag).toBe("Idle");
+    expect(INITIAL_STATE._tag).toStrictEqual("Idle");
   });
 });
 
@@ -43,23 +43,23 @@ describe("INITIAL_STATE", () => {
 
 describe("isActionable", () => {
   it("returns true for Idle", () => {
-    expect(isActionable(CleanupState.Idle())).toBe(true);
+    expect(isActionable(CleanupState.Idle())).toStrictEqual(true);
   });
 
   it("returns true for WaitingForTreeFix", () => {
-    expect(isActionable(CleanupState.WaitingForTreeFix({ attempts: attempt1 }))).toBe(true);
+    expect(isActionable(CleanupState.WaitingForTreeFix({ attempts: attempt1 }))).toStrictEqual(true);
   });
 
   it("returns true for WaitingForGateFix", () => {
     expect(
       isActionable(CleanupState.WaitingForGateFix({ attempts: attempt1, failedGate: cmd1 })),
-    ).toBe(true);
+    ).toStrictEqual(true);
   });
 
   it("returns true for WaitingForFactoring", () => {
     expect(
       isActionable(CleanupState.WaitingForFactoring({ attempts: attempt1, priorHeadSHA: sha1 })),
-    ).toBe(true);
+    ).toStrictEqual(true);
   });
 
   it("returns false for AwaitingUserInput", () => {
@@ -67,11 +67,11 @@ describe("isActionable", () => {
       isActionable(
         CleanupState.AwaitingUserInput({ reason: AwaitingReason.GatesUnconfigured() }),
       ),
-    ).toBe(false);
+    ).toStrictEqual(false);
   });
 
   it("returns false for Disabled", () => {
-    expect(isActionable(CleanupState.Disabled())).toBe(false);
+    expect(isActionable(CleanupState.Disabled())).toStrictEqual(false);
   });
 });
 
@@ -84,18 +84,18 @@ describe("transition from Idle", () => {
 
   it("GitDirty → WaitingForTreeFix(attempts=1)", () => {
     const next = transition(idle, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
     if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toBe(1);
+      expect(next.attempts).toStrictEqual(1);
     }
   });
 
   it("GitClean → Idle", () => {
-    expect(transition(idle, TransitionEvent.GitClean())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.GitClean())._tag).toStrictEqual("Idle");
   });
 
   it("NotARepo → Idle", () => {
-    expect(transition(idle, TransitionEvent.NotARepo())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.NotARepo())._tag).toStrictEqual("Idle");
   });
 
   it("GateFailed → WaitingForGateFix(attempts=1, failedGate)", () => {
@@ -103,22 +103,22 @@ describe("transition from Idle", () => {
       idle,
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
-    expect(next._tag).toBe("WaitingForGateFix");
+    expect(next._tag).toStrictEqual("WaitingForGateFix");
     if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toBe(1);
-      expect(next.failedGate).toBe(cmd1);
+      expect(next.attempts).toStrictEqual(1);
+      expect(next.failedGate).toStrictEqual(cmd1);
     }
   });
 
   it("GatesPassed → Idle", () => {
-    expect(transition(idle, TransitionEvent.GatesPassed())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.GatesPassed())._tag).toStrictEqual("Idle");
   });
 
   it("NoGateConfig → AwaitingUserInput(GatesUnconfigured)", () => {
     const next = transition(idle, TransitionEvent.NoGateConfig());
-    expect(next._tag).toBe("AwaitingUserInput");
+    expect(next._tag).toStrictEqual("AwaitingUserInput");
     if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toBe("GatesUnconfigured");
+      expect(next.reason._tag).toStrictEqual("GatesUnconfigured");
     }
   });
 
@@ -127,53 +127,53 @@ describe("transition from Idle", () => {
       idle,
       TransitionEvent.NeedsFactoring({ headSHA: sha1, baseSHA: sha2 }),
     );
-    expect(next._tag).toBe("WaitingForFactoring");
+    expect(next._tag).toStrictEqual("WaitingForFactoring");
     if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toBe(1);
-      expect(next.priorHeadSHA).toBe(sha1);
+      expect(next.attempts).toStrictEqual(1);
+      expect(next.priorHeadSHA).toStrictEqual(sha1);
     }
   });
 
   it("FactoringConverged → Idle", () => {
     expect(
       transition(idle, TransitionEvent.FactoringConverged({ headSHA: sha1 }))._tag,
-    ).toBe("Idle");
+    ).toStrictEqual("Idle");
   });
 
   it("Atomic → Idle", () => {
-    expect(transition(idle, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("NoBase → Idle", () => {
-    expect(transition(idle, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("Indeterminate → Idle", () => {
-    expect(transition(idle, TransitionEvent.Indeterminate())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.Indeterminate())._tag).toStrictEqual("Idle");
   });
 
   it("MaxAttemptsExceeded → Idle (Idle has no max)", () => {
-    expect(transition(idle, TransitionEvent.MaxAttemptsExceeded())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.MaxAttemptsExceeded())._tag).toStrictEqual("Idle");
   });
 
   it("UserDisabled → Disabled", () => {
-    expect(transition(idle, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(idle, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("SessionStarted → Idle", () => {
-    expect(transition(idle, TransitionEvent.SessionStarted())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.SessionStarted())._tag).toStrictEqual("Idle");
   });
 
   it("UserEnabled → Idle (already idle)", () => {
-    expect(transition(idle, TransitionEvent.UserEnabled())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.UserEnabled())._tag).toStrictEqual("Idle");
   });
 
   it("UserResumed → Idle (no-op from idle)", () => {
-    expect(transition(idle, TransitionEvent.UserResumed())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.UserResumed())._tag).toStrictEqual("Idle");
   });
 
   it("GatesConfigured → Idle (no-op from idle)", () => {
-    expect(transition(idle, TransitionEvent.GatesConfigured())._tag).toBe("Idle");
+    expect(transition(idle, TransitionEvent.GatesConfigured())._tag).toStrictEqual("Idle");
   });
 });
 
@@ -186,18 +186,18 @@ describe("transition from WaitingForTreeFix", () => {
 
   it("GitDirty → WaitingForTreeFix(attempts incremented)", () => {
     const next = transition(waiting, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
     if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toBe(3);
+      expect(next.attempts).toStrictEqual(3);
     }
   });
 
   it("GitClean → Idle", () => {
-    expect(transition(waiting, TransitionEvent.GitClean())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.GitClean())._tag).toStrictEqual("Idle");
   });
 
   it("NotARepo → Idle", () => {
-    expect(transition(waiting, TransitionEvent.NotARepo())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.NotARepo())._tag).toStrictEqual("Idle");
   });
 
   it("GateFailed → WaitingForGateFix(attempts incremented)", () => {
@@ -205,22 +205,22 @@ describe("transition from WaitingForTreeFix", () => {
       waiting,
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
-    expect(next._tag).toBe("WaitingForGateFix");
+    expect(next._tag).toStrictEqual("WaitingForGateFix");
     if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toBe(3);
-      expect(next.failedGate).toBe(cmd1);
+      expect(next.attempts).toStrictEqual(3);
+      expect(next.failedGate).toStrictEqual(cmd1);
     }
   });
 
   it("GatesPassed → Idle", () => {
-    expect(transition(waiting, TransitionEvent.GatesPassed())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.GatesPassed())._tag).toStrictEqual("Idle");
   });
 
   it("NoGateConfig → AwaitingUserInput(GatesUnconfigured)", () => {
     const next = transition(waiting, TransitionEvent.NoGateConfig());
-    expect(next._tag).toBe("AwaitingUserInput");
+    expect(next._tag).toStrictEqual("AwaitingUserInput");
     if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toBe("GatesUnconfigured");
+      expect(next.reason._tag).toStrictEqual("GatesUnconfigured");
     }
   });
 
@@ -229,63 +229,63 @@ describe("transition from WaitingForTreeFix", () => {
       waiting,
       TransitionEvent.NeedsFactoring({ headSHA: sha1, baseSHA: sha2 }),
     );
-    expect(next._tag).toBe("WaitingForFactoring");
+    expect(next._tag).toStrictEqual("WaitingForFactoring");
     if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toBe(3);
+      expect(next.attempts).toStrictEqual(3);
     }
   });
 
   it("FactoringConverged → Idle", () => {
     expect(
       transition(waiting, TransitionEvent.FactoringConverged({ headSHA: sha1 }))._tag,
-    ).toBe("Idle");
+    ).toStrictEqual("Idle");
   });
 
   it("Atomic → Idle", () => {
-    expect(transition(waiting, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("NoBase → Idle", () => {
-    expect(transition(waiting, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("Indeterminate → Idle", () => {
-    expect(transition(waiting, TransitionEvent.Indeterminate())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.Indeterminate())._tag).toStrictEqual("Idle");
   });
 
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with phase and attempts", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
-    expect(next._tag).toBe("AwaitingUserInput");
+    expect(next._tag).toStrictEqual("AwaitingUserInput");
     if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toBe("Stalled");
+      expect(next.reason._tag).toStrictEqual("Stalled");
       if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toBe("WaitingForTreeFix");
-        expect(next.reason.attempts).toBe(2);
+        expect(next.reason.phase).toStrictEqual("WaitingForTreeFix");
+        expect(next.reason.attempts).toStrictEqual(2);
       }
     }
   });
 
   it("UserDisabled → Disabled", () => {
-    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("SessionStarted → Idle", () => {
-    expect(transition(waiting, TransitionEvent.SessionStarted())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.SessionStarted())._tag).toStrictEqual("Idle");
   });
 
   it("UserEnabled → stays WaitingForTreeFix (no-op)", () => {
     const next = transition(waiting, TransitionEvent.UserEnabled());
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
   });
 
   it("UserResumed → stays WaitingForTreeFix (no-op)", () => {
     const next = transition(waiting, TransitionEvent.UserResumed());
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
   });
 
   it("GatesConfigured → stays WaitingForTreeFix (no-op)", () => {
     const next = transition(waiting, TransitionEvent.GatesConfigured());
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
   });
 });
 
@@ -298,14 +298,14 @@ describe("transition from WaitingForGateFix", () => {
 
   it("GitDirty → WaitingForTreeFix(attempts incremented)", () => {
     const next = transition(waiting, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
-    expect(next._tag).toBe("WaitingForTreeFix");
+    expect(next._tag).toStrictEqual("WaitingForTreeFix");
     if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toBe(3);
+      expect(next.attempts).toStrictEqual(3);
     }
   });
 
   it("GitClean → Idle", () => {
-    expect(transition(waiting, TransitionEvent.GitClean())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.GitClean())._tag).toStrictEqual("Idle");
   });
 
   it("GateFailed → WaitingForGateFix(attempts incremented, new command)", () => {
@@ -313,35 +313,35 @@ describe("transition from WaitingForGateFix", () => {
       waiting,
       TransitionEvent.GateFailed({ command: cmd2, output: "lint error" }),
     );
-    expect(next._tag).toBe("WaitingForGateFix");
+    expect(next._tag).toStrictEqual("WaitingForGateFix");
     if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toBe(3);
-      expect(next.failedGate).toBe(cmd2);
+      expect(next.attempts).toStrictEqual(3);
+      expect(next.failedGate).toStrictEqual(cmd2);
     }
   });
 
   it("GatesPassed → Idle", () => {
-    expect(transition(waiting, TransitionEvent.GatesPassed())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.GatesPassed())._tag).toStrictEqual("Idle");
   });
 
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with WaitingForGateFix phase", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
-    expect(next._tag).toBe("AwaitingUserInput");
+    expect(next._tag).toStrictEqual("AwaitingUserInput");
     if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toBe("Stalled");
+      expect(next.reason._tag).toStrictEqual("Stalled");
       if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toBe("WaitingForGateFix");
-        expect(next.reason.attempts).toBe(2);
+        expect(next.reason.phase).toStrictEqual("WaitingForGateFix");
+        expect(next.reason.attempts).toStrictEqual(2);
       }
     }
   });
 
   it("UserDisabled → Disabled", () => {
-    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("UserEnabled → stays WaitingForGateFix (no-op)", () => {
-    expect(transition(waiting, TransitionEvent.UserEnabled())._tag).toBe("WaitingForGateFix");
+    expect(transition(waiting, TransitionEvent.UserEnabled())._tag).toStrictEqual("WaitingForGateFix");
   });
 });
 
@@ -357,29 +357,29 @@ describe("transition from WaitingForFactoring", () => {
       waiting,
       TransitionEvent.NeedsFactoring({ headSHA: sha2, baseSHA: sha1 }),
     );
-    expect(next._tag).toBe("WaitingForFactoring");
+    expect(next._tag).toStrictEqual("WaitingForFactoring");
     if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toBe(3);
-      expect(next.priorHeadSHA).toBe(sha2);
+      expect(next.attempts).toStrictEqual(3);
+      expect(next.priorHeadSHA).toStrictEqual(sha2);
     }
   });
 
   it("FactoringConverged → Idle", () => {
     expect(
       transition(waiting, TransitionEvent.FactoringConverged({ headSHA: sha1 }))._tag,
-    ).toBe("Idle");
+    ).toStrictEqual("Idle");
   });
 
   it("Atomic → Idle", () => {
-    expect(transition(waiting, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.Atomic({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("NoBase → Idle", () => {
-    expect(transition(waiting, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.NoBase({ headSHA: sha1 }))._tag).toStrictEqual("Idle");
   });
 
   it("Indeterminate → Idle", () => {
-    expect(transition(waiting, TransitionEvent.Indeterminate())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.Indeterminate())._tag).toStrictEqual("Idle");
   });
 
   it("GateFailed → WaitingForGateFix(attempts incremented)", () => {
@@ -387,29 +387,29 @@ describe("transition from WaitingForFactoring", () => {
       waiting,
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
-    expect(next._tag).toBe("WaitingForGateFix");
+    expect(next._tag).toStrictEqual("WaitingForGateFix");
     if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toBe(3);
+      expect(next.attempts).toStrictEqual(3);
     }
   });
 
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with WaitingForFactoring phase", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
-    expect(next._tag).toBe("AwaitingUserInput");
+    expect(next._tag).toStrictEqual("AwaitingUserInput");
     if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toBe("Stalled");
+      expect(next.reason._tag).toStrictEqual("Stalled");
       if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toBe("WaitingForFactoring");
+        expect(next.reason.phase).toStrictEqual("WaitingForFactoring");
       }
     }
   });
 
   it("UserDisabled → Disabled", () => {
-    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(waiting, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("SessionStarted → Idle", () => {
-    expect(transition(waiting, TransitionEvent.SessionStarted())._tag).toBe("Idle");
+    expect(transition(waiting, TransitionEvent.SessionStarted())._tag).toStrictEqual("Idle");
   });
 });
 
@@ -426,19 +426,19 @@ describe("transition from AwaitingUserInput", () => {
   });
 
   it("UserResumed → Idle", () => {
-    expect(transition(awaitingStalled, TransitionEvent.UserResumed())._tag).toBe("Idle");
+    expect(transition(awaitingStalled, TransitionEvent.UserResumed())._tag).toStrictEqual("Idle");
   });
 
   it("GatesConfigured → Idle", () => {
-    expect(transition(awaitingGates, TransitionEvent.GatesConfigured())._tag).toBe("Idle");
+    expect(transition(awaitingGates, TransitionEvent.GatesConfigured())._tag).toStrictEqual("Idle");
   });
 
   it("UserDisabled → Disabled", () => {
-    expect(transition(awaitingGates, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(awaitingGates, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("SessionStarted → Idle", () => {
-    expect(transition(awaitingGates, TransitionEvent.SessionStarted())._tag).toBe("Idle");
+    expect(transition(awaitingGates, TransitionEvent.SessionStarted())._tag).toStrictEqual("Idle");
   });
 
   it("pipeline events are ignored (stays AwaitingUserInput)", () => {
@@ -459,12 +459,12 @@ describe("transition from AwaitingUserInput", () => {
 
     for (const event of pipelineEvents) {
       const next = transition(awaitingGates, event);
-      expect(next._tag).toBe("AwaitingUserInput");
+      expect(next._tag).toStrictEqual("AwaitingUserInput");
     }
   });
 
   it("UserEnabled → stays AwaitingUserInput (no-op)", () => {
-    expect(transition(awaitingGates, TransitionEvent.UserEnabled())._tag).toBe(
+    expect(transition(awaitingGates, TransitionEvent.UserEnabled())._tag).toStrictEqual(
       "AwaitingUserInput",
     );
   });
@@ -478,11 +478,11 @@ describe("transition from Disabled", () => {
   const disabled = CleanupState.Disabled();
 
   it("UserEnabled → Idle", () => {
-    expect(transition(disabled, TransitionEvent.UserEnabled())._tag).toBe("Idle");
+    expect(transition(disabled, TransitionEvent.UserEnabled())._tag).toStrictEqual("Idle");
   });
 
   it("SessionStarted → Idle", () => {
-    expect(transition(disabled, TransitionEvent.SessionStarted())._tag).toBe("Idle");
+    expect(transition(disabled, TransitionEvent.SessionStarted())._tag).toStrictEqual("Idle");
   });
 
   it("pipeline events are ignored (stays Disabled)", () => {
@@ -502,20 +502,20 @@ describe("transition from Disabled", () => {
     ];
 
     for (const event of pipelineEvents) {
-      expect(transition(disabled, event)._tag).toBe("Disabled");
+      expect(transition(disabled, event)._tag).toStrictEqual("Disabled");
     }
   });
 
   it("UserDisabled → stays Disabled (no-op)", () => {
-    expect(transition(disabled, TransitionEvent.UserDisabled())._tag).toBe("Disabled");
+    expect(transition(disabled, TransitionEvent.UserDisabled())._tag).toStrictEqual("Disabled");
   });
 
   it("UserResumed → stays Disabled (no-op)", () => {
-    expect(transition(disabled, TransitionEvent.UserResumed())._tag).toBe("Disabled");
+    expect(transition(disabled, TransitionEvent.UserResumed())._tag).toStrictEqual("Disabled");
   });
 
   it("GatesConfigured → stays Disabled (no-op)", () => {
-    expect(transition(disabled, TransitionEvent.GatesConfigured())._tag).toBe("Disabled");
+    expect(transition(disabled, TransitionEvent.GatesConfigured())._tag).toStrictEqual("Disabled");
   });
 });
 
@@ -527,63 +527,63 @@ describe("multi-step transition sequences", () => {
   it("Idle → GitDirty → GitClean → Idle (tree fix loop)", () => {
     let state = CleanupState.Idle();
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
-    expect(state._tag).toBe("WaitingForTreeFix");
+    expect(state._tag).toStrictEqual("WaitingForTreeFix");
     state = transition(state, TransitionEvent.GitClean());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("Idle → GateFailed → GatesPassed → Idle (gate fix loop)", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.GateFailed({ command: cmd1, output: "error" }));
-    expect(state._tag).toBe("WaitingForGateFix");
+    expect(state._tag).toStrictEqual("WaitingForGateFix");
     state = transition(state, TransitionEvent.GatesPassed());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("Idle → UserDisabled → UserEnabled → Idle (enable/disable cycle)", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.UserDisabled());
-    expect(state._tag).toBe("Disabled");
+    expect(state._tag).toStrictEqual("Disabled");
     state = transition(state, TransitionEvent.UserEnabled());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("Idle → NoGateConfig → GatesConfigured → Idle (configure gates)", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.NoGateConfig());
-    expect(state._tag).toBe("AwaitingUserInput");
+    expect(state._tag).toStrictEqual("AwaitingUserInput");
     state = transition(state, TransitionEvent.GatesConfigured());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("Idle → MaxAttemptsExceeded during WaitingForGateFix → UserResumed → Idle", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.GateFailed({ command: cmd1, output: "error" }));
     state = transition(state, TransitionEvent.MaxAttemptsExceeded());
-    expect(state._tag).toBe("AwaitingUserInput");
+    expect(state._tag).toStrictEqual("AwaitingUserInput");
     state = transition(state, TransitionEvent.UserResumed());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("SessionStarted resets WaitingForTreeFix to Idle", () => {
     let state: CleanupState = CleanupState.WaitingForTreeFix({ attempts: attempt2 });
     state = transition(state, TransitionEvent.SessionStarted());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("SessionStarted resets Disabled to Idle", () => {
     let state: CleanupState = CleanupState.Disabled();
     state = transition(state, TransitionEvent.SessionStarted());
-    expect(state._tag).toBe("Idle");
+    expect(state._tag).toStrictEqual("Idle");
   });
 
   it("attempt counter increments across repeated GitDirty events", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toBe(1);
+    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(1);
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toBe(2);
+    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(2);
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toBe(3);
+    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(3);
   });
 });
