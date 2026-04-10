@@ -21,10 +21,6 @@ import { TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
 import { type CommitSHA, type GateConfig, decodeCommitSHA } from "./types.js";
 
-// ---------------------------------------------------------------------------
-// Shared Helpers
-// ---------------------------------------------------------------------------
-
 /**
  * Dispatch a transition event and update the status widget.
  *
@@ -63,26 +59,48 @@ export const withBoomerangAnchor = (runtime: RuntimeState, message: string): str
 };
 
 /**
+ * Format the list of actions taken during the cleanup cycle.
+ *
+ * @param actions - The raw action strings.
+ * @returns Formatted bullet list, or a default message.
+ */
+const formatCycleActions = (actions: readonly string[]): string => {
+  if (actions.length > 0) {
+    return actions.map((a) => `- ${a}`).join("\n");
+  }
+
+  return "- No fixes needed (all checks passed on first evaluation)";
+};
+
+/**
+ * Build a collapse summary describing what the cleanup cycle did.
+ *
+ * @param runtime - The runtime state with cycle actions.
+ * @returns A formatted summary string for the collapse message.
+ */
+const buildCollapseSummary = (runtime: RuntimeState): string =>
+  [
+    "Cleanup complete. Actions taken during this cycle:",
+    formatCycleActions(runtime.cycleActions),
+    "",
+    "Call the boomerang tool with no arguments to collapse the cleanup context.",
+  ].join("\n");
+
+/**
  * Send a boomerang collapse message if an anchor is currently active.
  *
- * Called when all phases pass and the cleanup cycle is complete.
- * The LLM will call `boomerang()` again to trigger context collapse.
+ * Includes a summary of what the cleanup cycle did so the LLM
+ * retains context after the collapse.
  *
  * @param pi - The extension API for sending messages.
  * @param runtime - The mutable runtime state.
  */
 export const collapseBoomerangIfNeeded = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   if (runtime.boomerangAnchorSet) {
-    pi.sendUserMessage(
-      "Cleanup complete. Call the boomerang tool with no arguments to collapse the cleanup context.",
-    );
+    pi.sendUserMessage(buildCollapseSummary(runtime));
     runtime.boomerangAnchorSet = false;
   }
 };
-
-// ---------------------------------------------------------------------------
-// Convergence Check
-// ---------------------------------------------------------------------------
 
 /**
  * Check for factoring convergence when in WaitingForFactoring.
@@ -125,10 +143,6 @@ export const checkConvergence = async (
   return true;
 };
 
-// ---------------------------------------------------------------------------
-// Phase 1: Gate Check
-// ---------------------------------------------------------------------------
-
 /**
  * Run quality gates against the working tree.
  *
@@ -157,6 +171,7 @@ export const runGatePhase = async (
   return Match.value(result).pipe(
     Match.tag("Failed", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GateFailed(r));
+      runtime.cycleActions.push(`Fixed failing gate: \`${String(r.command)}\``);
       pi.sendUserMessage(withBoomerangAnchor(runtime, buildGateFixMessage(r.command, r.output)));
 
       return true;
@@ -165,10 +180,6 @@ export const runGatePhase = async (
     Match.exhaustive,
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 2: Dirty Tree Check
-// ---------------------------------------------------------------------------
 
 /**
  * Check the working tree for uncommitted changes.
@@ -191,6 +202,7 @@ export const runDirtyTreePhase = async (
   return Match.value(result).pipe(
     Match.tag("Dirty", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GitDirty(r));
+      runtime.cycleActions.push("Committed uncommitted changes");
       pi.sendUserMessage(withBoomerangAnchor(runtime, buildDirtyTreeMessage(r.porcelain)));
 
       return true;
@@ -204,10 +216,6 @@ export const runDirtyTreePhase = async (
     Match.exhaustive,
   );
 };
-
-// ---------------------------------------------------------------------------
-// Phase 3: Atomicity Check
-// ---------------------------------------------------------------------------
 
 /** Context for the atomicity phase. */
 export interface AtomicityPhaseContext {
@@ -253,6 +261,7 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
   return Match.value(result).pipe(
     Match.tag("NeedsFactoring", (r): false => {
       dispatch(runtime, ctx, TransitionEvent.NeedsFactoring(r));
+      runtime.cycleActions.push(`Factored ${String(r.commitCount)} commits into atomic units`);
       pi.sendUserMessage(
         withBoomerangAnchor(runtime, buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands)),
       );

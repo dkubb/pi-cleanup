@@ -46,6 +46,7 @@ const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.boomerangAvailable = pi.getAllTools().some((tool) => tool.name === "boomerang");
   runtime.evalPending = false;
   runtime.cycleComplete = false;
+  runtime.cycleActions = [];
 };
 
 /** Minimal entry shape for session restoration. */
@@ -128,6 +129,7 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     if (event.source !== "extension" && runtime.cycleComplete) {
       runtime.cycleComplete = false;
       runtime.evalPending = false;
+      runtime.cycleActions = [];
     }
   });
 

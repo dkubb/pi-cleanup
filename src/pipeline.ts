@@ -127,6 +127,7 @@ const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
 
   runtime.evalPending = false;
   runtime.cycleComplete = true;
+  runtime.cycleActions.push("Verified task completion");
   collapseBoomerangIfNeeded(pi, runtime);
 };
 

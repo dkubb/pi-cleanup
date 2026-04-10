@@ -32,6 +32,8 @@ export interface RuntimeState {
   evalPending: boolean;
   /** Whether the cleanup cycle completed (reset on next user prompt). */
   cycleComplete: boolean;
+  /** Actions taken during this cleanup cycle, for the collapse summary. */
+  cycleActions: string[];
 }
 
 /**
@@ -43,6 +45,7 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   boomerangAnchorSet: false,
   boomerangAvailable: false,
   cleanup: INITIAL_STATE,
+  cycleActions: [],
   cycleComplete: false,
   evalPending: false,
   gateConfig: Option.none(),
