@@ -250,11 +250,10 @@ const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promise<void>
  * Check guard conditions before running the pipeline.
  *
  * @param runtime - The runtime state.
- * @param ctx - The extension context.
  * @returns True if the pipeline should be skipped.
  */
-const shouldSkip = (runtime: RuntimeState, ctx: ExtensionContext): boolean =>
-  !isActionable(runtime.cleanup) || !ctx.hasUI || globalThis.__boomerangCollapseInProgress === true;
+const shouldSkip = (runtime: RuntimeState): boolean =>
+  !isActionable(runtime.cleanup) || globalThis.__boomerangCollapseInProgress === true;
 
 /**
  * Handle agent_end: run the cleanup pipeline.
@@ -268,7 +267,7 @@ export const handleAgentEnd = async (
   runtime: RuntimeState,
   ctx: ExtensionContext,
 ): Promise<void> => {
-  if (shouldSkip(runtime, ctx)) {
+  if (shouldSkip(runtime)) {
     return;
   }
 
