@@ -30,6 +30,8 @@ export interface RuntimeState {
   boomerangAnchorSet: boolean;
   /** Whether a completion eval has been sent and is awaiting re-check. */
   evalPending: boolean;
+  /** Whether the cleanup cycle completed (reset on next user prompt). */
+  cycleComplete: boolean;
 }
 
 /**
@@ -41,6 +43,7 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   boomerangAnchorSet: false,
   boomerangAvailable: false,
   cleanup: INITIAL_STATE,
+  cycleComplete: false,
   evalPending: false,
   gateConfig: Option.none(),
   lastCleanCommitSHA: Option.none(),

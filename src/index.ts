@@ -45,6 +45,7 @@ const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.boomerangAnchorSet = false;
   runtime.boomerangAvailable = pi.getAllTools().some((tool) => tool.name === "boomerang");
   runtime.evalPending = false;
+  runtime.cycleComplete = false;
 };
 
 /** Minimal entry shape for session restoration. */
@@ -118,6 +119,16 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     runtime.cleanup = transition(runtime.cleanup, TransitionEvent.SessionStarted());
     updateStatus(ctx, runtime.cleanup);
     notifyStartupWarnings(runtime, ctx);
+  });
+
+  // Reset the cleanup cycle when a new user-initiated prompt starts.
+  // Extension-injected messages (sendUserMessage) have source "extension"
+  // And should not reset the cycle.
+  pi.on("input", (event) => {
+    if (event.source !== "extension" && runtime.cycleComplete) {
+      runtime.cycleComplete = false;
+      runtime.evalPending = false;
+    }
   });
 
   pi.on("agent_end", async (_event, ctx) => {

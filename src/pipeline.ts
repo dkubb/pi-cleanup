@@ -78,7 +78,9 @@ const getAttempts = (state: CleanupState): AttemptCount =>
  * @returns True if the pipeline should not run.
  */
 const shouldSkip = (runtime: RuntimeState): boolean =>
-  !isActionable(runtime.cleanup) || globalThis.__boomerangCollapseInProgress === true;
+  !isActionable(runtime.cleanup) ||
+  runtime.cycleComplete ||
+  globalThis.__boomerangCollapseInProgress === true;
 
 /**
  * Check whether the attempt limit has been exceeded.
@@ -124,6 +126,7 @@ const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   }
 
   runtime.evalPending = false;
+  runtime.cycleComplete = true;
   collapseBoomerangIfNeeded(pi, runtime);
 };
 
