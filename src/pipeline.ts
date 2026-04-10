@@ -20,10 +20,16 @@ import {
   runGatePhase,
 } from "./pipeline-phases.js";
 import { isGitRepo } from "./phases/dirty-tree.js";
+import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
-import { AttemptCount as AttemptCountSchema, type AttemptCount, decodeCommitSHA } from "./types.js";
+import {
+  AttemptCount as AttemptCountSchema,
+  type AttemptCount,
+  type CommitSHA,
+  decodeCommitSHA,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -108,16 +114,11 @@ const checkMaxAttempts = (runtime: RuntimeState, ctx: ExtensionContext): boolean
 };
 
 /**
- * Phase 4: completion eval, then finalize.
+ * First pass sends eval prompt; second pass collapses via navigateTree.
  *
- * On the first pass after all phases succeed, sends an eval prompt
- * asking the LLM to verify its work is complete. On the second
- * pass (after eval), finalizes by collapsing cleanup context via
- * navigateTree.
- *
- * @param pi - The extension API for sending messages.
+ * @param pi - The extension API.
  * @param runtime - The mutable runtime state.
- * @param ctx - The extension context for session access.
+ * @param ctx - The extension context.
  */
 const runEvalOrComplete = async (
   pi: ExtensionAPI,
@@ -137,6 +138,55 @@ const runEvalOrComplete = async (
   runtime.mutationDetected = false;
   runtime.cycleActions.push("Verified task completion");
   await collapseIfNeeded(runtime);
+};
+
+/** Context for the code review phase. */
+interface ReviewPhaseContext {
+  readonly pi: ExtensionAPI;
+  readonly runtime: RuntimeState;
+  readonly ctx: ExtensionContext;
+}
+
+/**
+ * Run the code review phase if not yet complete.
+ *
+ * On the first pass, sends a message asking the agent to delegate
+ * a code review to a subagent. On the second pass (after review),
+ * marks the review as complete and proceeds.
+ *
+ * @param phaseCtx - The review phase context.
+ * @param headEither - The parsed HEAD SHA result.
+ * @param baseSHA - The base SHA for the review range.
+ * @returns True if the phase needs agent action (caller should return).
+ */
+export const runReviewIfNeeded = (
+  phaseCtx: ReviewPhaseContext,
+  headEither: Either.Either<CommitSHA, unknown>,
+  baseSHA: Option.Option<CommitSHA>,
+): boolean => {
+  const { pi, runtime, ctx } = phaseCtx;
+
+  if (runtime.reviewComplete) {
+    return false;
+  }
+
+  if (!Either.isRight(headEither) || Option.isNone(baseSHA)) {
+    return false;
+  }
+
+  if (!runtime.reviewPending) {
+    runtime.reviewPending = true;
+    runtime.cycleActions.push("Delegated code review to subagent");
+    captureCollapseAnchor(runtime, ctx);
+    pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right));
+
+    return true;
+  }
+
+  runtime.reviewPending = false;
+  runtime.reviewComplete = true;
+
+  return false;
 };
 
 /**
@@ -187,8 +237,16 @@ const runGitPhases = async (
     return true;
   }
 
-  const gateConfig = Option.getOrThrow(runtime.gateConfig);
+  // Code review runs after tree is clean, before atomicity
+  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
+  const headEither = decodeCommitSHA(headResult.stdout.trim());
   const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
+
+  if (runReviewIfNeeded({ ctx, pi, runtime }, headEither, baseSHA)) {
+    return true;
+  }
+
+  const gateConfig = Option.getOrThrow(runtime.gateConfig);
 
   if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
     return true;

@@ -44,6 +44,8 @@ const resetRuntimeState = (runtime: RuntimeState): void => {
   runtime.cycleBaseSHA = Option.none();
   runtime.cycleActions = [];
   runtime.mutationDetected = true;
+  runtime.reviewPending = false;
+  runtime.reviewComplete = false;
   runtime.collapseAnchorId = Option.none();
 };
 
@@ -120,6 +122,8 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     if (event.source !== "extension" && runtime.cycleComplete) {
       runtime.cycleComplete = false;
       runtime.evalPending = false;
+      runtime.reviewPending = false;
+      runtime.reviewComplete = false;
       runtime.cycleBaseSHA = Option.none();
       runtime.cycleActions = [];
     }

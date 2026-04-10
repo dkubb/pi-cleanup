@@ -34,6 +34,10 @@ export interface RuntimeState {
   cycleActions: string[];
   /** Whether a file-mutating tool ran since the last completed cycle. */
   mutationDetected: boolean;
+  /** Whether code review has been requested for this cycle. */
+  reviewPending: boolean;
+  /** Whether code review passed for this cycle. */
+  reviewComplete: boolean;
   /** Stored command context for navigateTree collapse. */
   commandCtx: Option.Option<CommandContextRef>;
   /** Leaf entry ID captured before the first cleanup message. */
@@ -56,4 +60,6 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   gateConfig: Option.none(),
   lastCleanCommitSHA: Option.none(),
   mutationDetected: true,
+  reviewComplete: false,
+  reviewPending: false,
 });

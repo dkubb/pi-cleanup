@@ -54,4 +54,14 @@ describe("createInitialRuntimeState", () => {
     const runtime = createInitialRuntimeState();
     expect(Option.isNone(runtime.collapseAnchorId)).toStrictEqual(true);
   });
+
+  it("returns false for reviewPending", () => {
+    const runtime = createInitialRuntimeState();
+    expect(runtime.reviewPending).toStrictEqual(false);
+  });
+
+  it("returns false for reviewComplete", () => {
+    const runtime = createInitialRuntimeState();
+    expect(runtime.reviewComplete).toStrictEqual(false);
+  });
 });
