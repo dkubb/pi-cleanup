@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ExecResult } from "@mariozechner/pi-coding-agent";
-import { buildDirtyTreeMessage, checkGitStatus } from "../../src/phases/dirty-tree.js";
+import { buildDirtyTreeMessage, checkGitStatus, isGitRepo } from "../../src/phases/dirty-tree.js";
 import type { ExecFn } from "../../src/types.js";
 
 // ---------------------------------------------------------------------------
@@ -15,6 +15,44 @@ const execCleanWhitespace: ExecFn = makeExec({ code: 0, stdout: "   \n  ", stder
 const execDirty: ExecFn = makeExec({ code: 0, stdout: "M  foo.ts\n?? bar.ts", stderr: "" });
 const execNotARepo128: ExecFn = makeExec({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
 const execNotARepo1: ExecFn = makeExec({ code: 1, stdout: "", stderr: "error" });
+
+// ---------------------------------------------------------------------------
+// isGitRepo
+// ---------------------------------------------------------------------------
+
+describe("isGitRepo", () => {
+  it("returns true when git rev-parse --git-dir exits with code 0", async () => {
+    const exec = makeExec({ code: 0, stdout: ".git", stderr: "" });
+    const result = await isGitRepo(exec);
+    expect(result).toBe(true);
+  });
+
+  it("returns false when git rev-parse --git-dir exits with non-zero code", async () => {
+    const exec = makeExec({ code: 128, stdout: "", stderr: "fatal: not a git repository" });
+    const result = await isGitRepo(exec);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when exit code is 1", async () => {
+    const exec = makeExec({ code: 1, stdout: "", stderr: "error" });
+    const result = await isGitRepo(exec);
+    expect(result).toBe(false);
+  });
+
+  it("calls exec with correct git rev-parse arguments", async () => {
+    const calls: Array<{ cmd: string; args: string[] }> = [];
+    const trackingExec: ExecFn = async (cmd, args) => {
+      calls.push({ cmd, args });
+      return { code: 0, stdout: ".git", stderr: "" };
+    };
+
+    await isGitRepo(trackingExec);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.cmd).toBe("git");
+    expect(calls[0]!.args).toEqual(["rev-parse", "--git-dir"]);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // checkGitStatus
