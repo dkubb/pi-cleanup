@@ -5,8 +5,8 @@ export PATH := "./node_modules/.bin:" + env("PATH")
 # Default recipe
 default: check
 
-# Run all checks (formatting + linting + type-checking)
-check: fmt-check lint typecheck
+# Run all checks (formatting + linting + type-checking + tests)
+check: fmt-check lint typecheck test
 
 # Fix all auto-fixable issues across all source files
 fix: fmt lint-fix
@@ -32,3 +32,7 @@ lint:
 # Type-check only (no emit)
 typecheck:
     tsc --noEmit
+
+# Run tests with coverage
+test:
+    vitest run --coverage
