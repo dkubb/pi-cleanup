@@ -70,9 +70,8 @@ describe("checkGitStatus", () => {
   it("returns Dirty with trimmed porcelain output", async () => {
     const result = await checkGitStatus(execDirty);
     expect(result._tag).toStrictEqual("Dirty");
-    if (result._tag === "Dirty") {
-      expect(result.porcelain).toStrictEqual("M  foo.ts\n?? bar.ts");
-    }
+    const resultDirty = result as Extract<typeof result, { _tag: "Dirty" }>;
+    expect(resultDirty.porcelain).toStrictEqual("M  foo.ts\n?? bar.ts");
   });
 
   it("returns Dirty preserving multi-line porcelain output", async () => {
@@ -80,9 +79,8 @@ describe("checkGitStatus", () => {
     const exec = makeExec({ code: 0, stdout: porcelain, stderr: "" });
     const result = await checkGitStatus(exec);
     expect(result._tag).toStrictEqual("Dirty");
-    if (result._tag === "Dirty") {
-      expect(result.porcelain).toStrictEqual(porcelain.trim());
-    }
+    const resultDirty = result as Extract<typeof result, { _tag: "Dirty" }>;
+    expect(resultDirty.porcelain).toStrictEqual(porcelain.trim());
   });
 
   it("returns NotARepo when exit code is 128", async () => {
@@ -117,9 +115,8 @@ describe("checkGitStatus", () => {
     const exec = makeExec({ code: 0, stdout: "\nM foo.ts\n", stderr: "" });
     const result = await checkGitStatus(exec);
     expect(result._tag).toStrictEqual("Dirty");
-    if (result._tag === "Dirty") {
-      expect(result.porcelain).toStrictEqual("M foo.ts");
-    }
+    const resultDirty = result as Extract<typeof result, { _tag: "Dirty" }>;
+    expect(resultDirty.porcelain).toStrictEqual("M foo.ts");
   });
 });
 

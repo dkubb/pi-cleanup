@@ -85,9 +85,8 @@ describe("transition from Idle", () => {
   it("GitDirty → WaitingForTreeFix(attempts=1)", () => {
     const next = transition(idle, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
     expect(next._tag).toStrictEqual("WaitingForTreeFix");
-    if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toStrictEqual(1);
-    }
+    const nextWTF = next as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(nextWTF.attempts).toStrictEqual(1);
   });
 
   it("GitClean → Idle", () => {
@@ -104,10 +103,9 @@ describe("transition from Idle", () => {
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
     expect(next._tag).toStrictEqual("WaitingForGateFix");
-    if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toStrictEqual(1);
-      expect(next.failedGate).toStrictEqual(cmd1);
-    }
+    const nextWGF = next as Extract<CleanupState, { _tag: "WaitingForGateFix" }>;
+    expect(nextWGF.attempts).toStrictEqual(1);
+    expect(nextWGF.failedGate).toStrictEqual(cmd1);
   });
 
   it("GatesPassed → Idle", () => {
@@ -117,9 +115,8 @@ describe("transition from Idle", () => {
   it("NoGateConfig → AwaitingUserInput(GatesUnconfigured)", () => {
     const next = transition(idle, TransitionEvent.NoGateConfig());
     expect(next._tag).toStrictEqual("AwaitingUserInput");
-    if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toStrictEqual("GatesUnconfigured");
-    }
+    const nextAUI = next as Extract<CleanupState, { _tag: "AwaitingUserInput" }>;
+    expect(nextAUI.reason._tag).toStrictEqual("GatesUnconfigured");
   });
 
   it("NeedsFactoring → WaitingForFactoring(attempts=1, priorHeadSHA)", () => {
@@ -128,10 +125,9 @@ describe("transition from Idle", () => {
       TransitionEvent.NeedsFactoring({ headSHA: sha1, baseSHA: sha2 }),
     );
     expect(next._tag).toStrictEqual("WaitingForFactoring");
-    if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toStrictEqual(1);
-      expect(next.priorHeadSHA).toStrictEqual(sha1);
-    }
+    const nextWFF = next as Extract<CleanupState, { _tag: "WaitingForFactoring" }>;
+    expect(nextWFF.attempts).toStrictEqual(1);
+    expect(nextWFF.priorHeadSHA).toStrictEqual(sha1);
   });
 
   it("FactoringConverged → Idle", () => {
@@ -187,9 +183,8 @@ describe("transition from WaitingForTreeFix", () => {
   it("GitDirty → WaitingForTreeFix(attempts incremented)", () => {
     const next = transition(waiting, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
     expect(next._tag).toStrictEqual("WaitingForTreeFix");
-    if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toStrictEqual(3);
-    }
+    const nextWTF = next as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(nextWTF.attempts).toStrictEqual(3);
   });
 
   it("GitClean → Idle", () => {
@@ -206,10 +201,9 @@ describe("transition from WaitingForTreeFix", () => {
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
     expect(next._tag).toStrictEqual("WaitingForGateFix");
-    if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toStrictEqual(3);
-      expect(next.failedGate).toStrictEqual(cmd1);
-    }
+    const nextWGF = next as Extract<CleanupState, { _tag: "WaitingForGateFix" }>;
+    expect(nextWGF.attempts).toStrictEqual(3);
+    expect(nextWGF.failedGate).toStrictEqual(cmd1);
   });
 
   it("GatesPassed → Idle", () => {
@@ -219,9 +213,8 @@ describe("transition from WaitingForTreeFix", () => {
   it("NoGateConfig → AwaitingUserInput(GatesUnconfigured)", () => {
     const next = transition(waiting, TransitionEvent.NoGateConfig());
     expect(next._tag).toStrictEqual("AwaitingUserInput");
-    if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toStrictEqual("GatesUnconfigured");
-    }
+    const nextAUI = next as Extract<CleanupState, { _tag: "AwaitingUserInput" }>;
+    expect(nextAUI.reason._tag).toStrictEqual("GatesUnconfigured");
   });
 
   it("NeedsFactoring → WaitingForFactoring(attempts incremented)", () => {
@@ -230,9 +223,8 @@ describe("transition from WaitingForTreeFix", () => {
       TransitionEvent.NeedsFactoring({ headSHA: sha1, baseSHA: sha2 }),
     );
     expect(next._tag).toStrictEqual("WaitingForFactoring");
-    if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toStrictEqual(3);
-    }
+    const nextWFF = next as Extract<CleanupState, { _tag: "WaitingForFactoring" }>;
+    expect(nextWFF.attempts).toStrictEqual(3);
   });
 
   it("FactoringConverged → Idle", () => {
@@ -256,13 +248,11 @@ describe("transition from WaitingForTreeFix", () => {
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with phase and attempts", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
     expect(next._tag).toStrictEqual("AwaitingUserInput");
-    if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toStrictEqual("Stalled");
-      if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toStrictEqual("WaitingForTreeFix");
-        expect(next.reason.attempts).toStrictEqual(2);
-      }
-    }
+    const nextAUI = next as Extract<CleanupState, { _tag: "AwaitingUserInput" }>;
+    expect(nextAUI.reason._tag).toStrictEqual("Stalled");
+    const reason = nextAUI.reason as Extract<AwaitingReason, { _tag: "Stalled" }>;
+    expect(reason.phase).toStrictEqual("WaitingForTreeFix");
+    expect(reason.attempts).toStrictEqual(2);
   });
 
   it("UserDisabled → Disabled", () => {
@@ -299,9 +289,8 @@ describe("transition from WaitingForGateFix", () => {
   it("GitDirty → WaitingForTreeFix(attempts incremented)", () => {
     const next = transition(waiting, TransitionEvent.GitDirty({ porcelain: "M foo.ts" }));
     expect(next._tag).toStrictEqual("WaitingForTreeFix");
-    if (next._tag === "WaitingForTreeFix") {
-      expect(next.attempts).toStrictEqual(3);
-    }
+    const nextWTF = next as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(nextWTF.attempts).toStrictEqual(3);
   });
 
   it("GitClean → Idle", () => {
@@ -314,10 +303,9 @@ describe("transition from WaitingForGateFix", () => {
       TransitionEvent.GateFailed({ command: cmd2, output: "lint error" }),
     );
     expect(next._tag).toStrictEqual("WaitingForGateFix");
-    if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toStrictEqual(3);
-      expect(next.failedGate).toStrictEqual(cmd2);
-    }
+    const nextWGF = next as Extract<CleanupState, { _tag: "WaitingForGateFix" }>;
+    expect(nextWGF.attempts).toStrictEqual(3);
+    expect(nextWGF.failedGate).toStrictEqual(cmd2);
   });
 
   it("GatesPassed → Idle", () => {
@@ -327,13 +315,11 @@ describe("transition from WaitingForGateFix", () => {
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with WaitingForGateFix phase", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
     expect(next._tag).toStrictEqual("AwaitingUserInput");
-    if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toStrictEqual("Stalled");
-      if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toStrictEqual("WaitingForGateFix");
-        expect(next.reason.attempts).toStrictEqual(2);
-      }
-    }
+    const nextAUI = next as Extract<CleanupState, { _tag: "AwaitingUserInput" }>;
+    expect(nextAUI.reason._tag).toStrictEqual("Stalled");
+    const reason = nextAUI.reason as Extract<AwaitingReason, { _tag: "Stalled" }>;
+    expect(reason.phase).toStrictEqual("WaitingForGateFix");
+    expect(reason.attempts).toStrictEqual(2);
   });
 
   it("UserDisabled → Disabled", () => {
@@ -358,10 +344,9 @@ describe("transition from WaitingForFactoring", () => {
       TransitionEvent.NeedsFactoring({ headSHA: sha2, baseSHA: sha1 }),
     );
     expect(next._tag).toStrictEqual("WaitingForFactoring");
-    if (next._tag === "WaitingForFactoring") {
-      expect(next.attempts).toStrictEqual(3);
-      expect(next.priorHeadSHA).toStrictEqual(sha2);
-    }
+    const nextWFF = next as Extract<CleanupState, { _tag: "WaitingForFactoring" }>;
+    expect(nextWFF.attempts).toStrictEqual(3);
+    expect(nextWFF.priorHeadSHA).toStrictEqual(sha2);
   });
 
   it("FactoringConverged → Idle", () => {
@@ -388,20 +373,17 @@ describe("transition from WaitingForFactoring", () => {
       TransitionEvent.GateFailed({ command: cmd1, output: "error" }),
     );
     expect(next._tag).toStrictEqual("WaitingForGateFix");
-    if (next._tag === "WaitingForGateFix") {
-      expect(next.attempts).toStrictEqual(3);
-    }
+    const nextWGF = next as Extract<CleanupState, { _tag: "WaitingForGateFix" }>;
+    expect(nextWGF.attempts).toStrictEqual(3);
   });
 
   it("MaxAttemptsExceeded → AwaitingUserInput(Stalled) with WaitingForFactoring phase", () => {
     const next = transition(waiting, TransitionEvent.MaxAttemptsExceeded());
     expect(next._tag).toStrictEqual("AwaitingUserInput");
-    if (next._tag === "AwaitingUserInput") {
-      expect(next.reason._tag).toStrictEqual("Stalled");
-      if (next.reason._tag === "Stalled") {
-        expect(next.reason.phase).toStrictEqual("WaitingForFactoring");
-      }
-    }
+    const nextAUI = next as Extract<CleanupState, { _tag: "AwaitingUserInput" }>;
+    expect(nextAUI.reason._tag).toStrictEqual("Stalled");
+    const reason = nextAUI.reason as Extract<AwaitingReason, { _tag: "Stalled" }>;
+    expect(reason.phase).toStrictEqual("WaitingForFactoring");
   });
 
   it("UserDisabled → Disabled", () => {
@@ -580,10 +562,16 @@ describe("multi-step transition sequences", () => {
   it("attempt counter increments across repeated GitDirty events", () => {
     let state: CleanupState = CleanupState.Idle();
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(1);
+    expect(state._tag).toStrictEqual("WaitingForTreeFix");
+    const state1 = state as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(state1.attempts).toStrictEqual(1);
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(2);
+    expect(state._tag).toStrictEqual("WaitingForTreeFix");
+    const state2 = state as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(state2.attempts).toStrictEqual(2);
     state = transition(state, TransitionEvent.GitDirty({ porcelain: "M a.ts" }));
-    expect(state._tag === "WaitingForTreeFix" && state.attempts).toStrictEqual(3);
+    expect(state._tag).toStrictEqual("WaitingForTreeFix");
+    const state3 = state as Extract<CleanupState, { _tag: "WaitingForTreeFix" }>;
+    expect(state3.attempts).toStrictEqual(3);
   });
 });

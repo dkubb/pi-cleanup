@@ -24,9 +24,10 @@ type ExecCall = { cmd: string; args: string[] };
 const makeExecMap = (map: Record<string, { code: number; stdout: string }>): ExecFn =>
   async (_cmd, args) => {
     const key = args.join(" ");
-    const result = map[key];
-    if (result) return { code: result.code, stdout: result.stdout, stderr: "" };
-    return { code: 1, stdout: "", stderr: "no match" };
+    const entry = map[key];
+    return entry !== undefined
+      ? { code: entry.code, stdout: entry.stdout, stderr: "" }
+      : { code: 1, stdout: "", stderr: "no match" };
   };
 
 // ---------------------------------------------------------------------------
@@ -40,9 +41,8 @@ describe("getDefaultBaseSHA", () => {
     });
     const result = await getDefaultBaseSHA(exec);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value).toStrictEqual(sha1);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value).toStrictEqual(sha1);
   });
 
   it("falls back to master when main does not exist", async () => {
@@ -51,9 +51,8 @@ describe("getDefaultBaseSHA", () => {
     });
     const result = await getDefaultBaseSHA(exec);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value).toStrictEqual(sha2);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value).toStrictEqual(sha2);
   });
 
   it("falls back to develop when main and master do not exist", async () => {
@@ -62,9 +61,8 @@ describe("getDefaultBaseSHA", () => {
     });
     const result = await getDefaultBaseSHA(exec);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value).toStrictEqual(sha3);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value).toStrictEqual(sha3);
   });
 
   it("returns None when no default branches exist", async () => {
@@ -80,9 +78,8 @@ describe("getDefaultBaseSHA", () => {
     });
     const result = await getDefaultBaseSHA(exec);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value).toStrictEqual(sha1);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value).toStrictEqual(sha1);
   });
 
   it("prefers master over develop (returns master when main absent)", async () => {
@@ -92,9 +89,8 @@ describe("getDefaultBaseSHA", () => {
     });
     const result = await getDefaultBaseSHA(exec);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value).toStrictEqual(sha2);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value).toStrictEqual(sha2);
   });
 
   it("returns None when merge-base returns invalid SHA", async () => {
@@ -147,26 +143,30 @@ describe("checkAtomicity — Indeterminate", () => {
 describe("checkAtomicity — NoBase", () => {
   it("returns NoBase when merge-base equals HEAD (working on default branch)", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "merge-base") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "merge-base": { code: 0, stdout: sha1 + "\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
     expect(result._tag).toStrictEqual("NoBase");
-    if (result._tag === "NoBase") {
-      expect(result.headSHA).toStrictEqual(sha1);
-    }
+    const resultNoBase = result as Extract<typeof result, { _tag: "NoBase" }>;
+    expect(resultNoBase.headSHA).toStrictEqual(sha1);
   });
 });
 
 describe("checkAtomicity — empty tree fallback", () => {
   it("uses empty tree SHA when no lastCleanSHA and no default branches", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "merge-base") return { code: 1, stdout: "", stderr: "no branch" };
-      // rev-list with empty tree base → 1 commit
-      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "merge-base": { code: 1, stdout: "", stderr: "no branch" },
+        "rev-list": { code: 0, stdout: "1\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
     expect(result._tag).toStrictEqual("Atomic");
@@ -174,16 +174,18 @@ describe("checkAtomicity — empty tree fallback", () => {
 
   it("returns NeedsFactoring with empty tree base when multiple commits", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "merge-base") return { code: 1, stdout: "", stderr: "no branch" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "5\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "merge-base": { code: 1, stdout: "", stderr: "no branch" },
+        "rev-list": { code: 0, stdout: "5\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
     expect(result._tag).toStrictEqual("NeedsFactoring");
-    if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toStrictEqual(5);
-    }
+    const resultNF = result as Extract<typeof result, { _tag: "NeedsFactoring" }>;
+    expect(resultNF.commitCount).toStrictEqual(5);
   });
 });
 
@@ -194,22 +196,27 @@ describe("checkAtomicity — empty tree fallback", () => {
 describe("checkAtomicity — Atomic", () => {
   it("returns Atomic when commit count is 1", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "1\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
     expect(result._tag).toStrictEqual("Atomic");
-    if (result._tag === "Atomic") {
-      expect(result.headSHA).toStrictEqual(sha1);
-    }
+    const resultAtomic = result as Extract<typeof result, { _tag: "Atomic" }>;
+    expect(resultAtomic.headSHA).toStrictEqual(sha1);
   });
 
   it("returns Atomic when commit count is 0", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "0\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "0\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
     expect(result._tag).toStrictEqual("Atomic");
@@ -217,9 +224,12 @@ describe("checkAtomicity — Atomic", () => {
 
   it("returns Atomic when rev-list output is not a number", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "not-a-number\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "not-a-number\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
     expect(result._tag).toStrictEqual("Atomic");
@@ -229,9 +239,12 @@ describe("checkAtomicity — Atomic", () => {
     const calls: ExecCall[] = [];
     const exec: ExecFn = async (_cmd, args) => {
       calls.push({ cmd: _cmd, args });
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "1\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     await checkAtomicity(exec, Option.some(sha2));
     const mergeBaseCalls = calls.filter((c) => c.args[0] === "merge-base");
@@ -246,53 +259,62 @@ describe("checkAtomicity — Atomic", () => {
 describe("checkAtomicity — NeedsFactoring", () => {
   it("returns NeedsFactoring when commit count is 2", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "2\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "2\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
     expect(result._tag).toStrictEqual("NeedsFactoring");
-    if (result._tag === "NeedsFactoring") {
-      expect(result.headSHA).toStrictEqual(sha1);
-      expect(result.baseSHA).toStrictEqual(sha2);
-      expect(result.commitCount).toStrictEqual(2);
-    }
+    const resultNF = result as Extract<typeof result, { _tag: "NeedsFactoring" }>;
+    expect(resultNF.headSHA).toStrictEqual(sha1);
+    expect(resultNF.baseSHA).toStrictEqual(sha2);
+    expect(resultNF.commitCount).toStrictEqual(2);
   });
 
   it("returns NeedsFactoring when commit count is 10", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "10\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "10\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
     expect(result._tag).toStrictEqual("NeedsFactoring");
-    if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toStrictEqual(10);
-    }
+    const resultNF = result as Extract<typeof result, { _tag: "NeedsFactoring" }>;
+    expect(resultNF.commitCount).toStrictEqual(10);
   });
 
   it("uses default branch merge-base when no lastCleanSHA", async () => {
     const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "merge-base") return { code: 0, stdout: sha2 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "3\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "merge-base": { code: 0, stdout: sha2 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "3\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.none());
     expect(result._tag).toStrictEqual("NeedsFactoring");
-    if (result._tag === "NeedsFactoring") {
-      expect(result.commitCount).toStrictEqual(3);
-    }
+    const resultNF = result as Extract<typeof result, { _tag: "NeedsFactoring" }>;
+    expect(resultNF.commitCount).toStrictEqual(3);
   });
 
   it("calls rev-list with correct SHA range", async () => {
     const calls: ExecCall[] = [];
     const exec: ExecFn = async (_cmd, args) => {
       calls.push({ cmd: _cmd, args });
-      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      if (args[0] === "rev-list") return { code: 0, stdout: "5\n", stderr: "" };
-      return { code: 1, stdout: "", stderr: "" };
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "5\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     await checkAtomicity(exec, Option.some(sha2));
     const revListCall = calls.find((c) => c.args[0] === "rev-list");

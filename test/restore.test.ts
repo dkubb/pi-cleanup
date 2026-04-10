@@ -11,11 +11,10 @@ describe("restoreGateConfig — valid config", () => {
     const data = { commands: ["npm test"], description: "Run tests" };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.commands).toHaveLength(1);
-      expect(result.value.commands[0]).toStrictEqual("npm test");
-      expect(result.value.description).toStrictEqual("Run tests");
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.commands).toHaveLength(1);
+    expect(value.commands[0]).toStrictEqual("npm test");
+    expect(value.description).toStrictEqual("Run tests");
   });
 
   it("restores a multi-command config", () => {
@@ -25,48 +24,43 @@ describe("restoreGateConfig — valid config", () => {
     };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.commands).toHaveLength(3);
-      expect(result.value.commands[0]).toStrictEqual("npm test");
-      expect(result.value.commands[1]).toStrictEqual("npm run lint");
-      expect(result.value.commands[2]).toStrictEqual("npm run build");
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.commands).toHaveLength(3);
+    expect(value.commands[0]).toStrictEqual("npm test");
+    expect(value.commands[1]).toStrictEqual("npm run lint");
+    expect(value.commands[2]).toStrictEqual("npm run build");
   });
 
   it("uses default description when description is missing", () => {
     const data = { commands: ["npm test"] };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.description).toStrictEqual("Restored from session");
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.description).toStrictEqual("Restored from session");
   });
 
   it("uses default description when description is not a string", () => {
     const data = { commands: ["npm test"], description: 42 };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.description).toStrictEqual("Restored from session");
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.description).toStrictEqual("Restored from session");
   });
 
   it("uses default description when description is null", () => {
     const data = { commands: ["npm test"], description: null };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.description).toStrictEqual("Restored from session");
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.description).toStrictEqual("Restored from session");
   });
 
   it("filters out invalid commands from the array", () => {
     const data = { commands: ["npm test", "", "  ", "npm run lint"], description: "test" };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.commands).toStrictEqual(["npm test", "npm run lint"]);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.commands).toStrictEqual(["npm test", "npm run lint"]);
   });
 
   it("returns None when all commands are invalid and array is empty after filtering", () => {
@@ -146,9 +140,8 @@ describe("restoreGateConfig — invalid / edge-case data", () => {
     const data = { commands: [42, "npm test", null, "npm run lint"], description: "test" };
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(result.value.commands).toStrictEqual(["npm test", "npm run lint"]);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(value.commands).toStrictEqual(["npm test", "npm run lint"]);
   });
 });
 
@@ -161,18 +154,16 @@ describe("restoreCommitSHA — valid data", () => {
     const sha = "a".repeat(40);
     const result = restoreCommitSHA({ sha });
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(String(result.value)).toStrictEqual(sha);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(String(value)).toStrictEqual(sha);
   });
 
   it("restores a different valid SHA", () => {
     const sha = "deadbeef".repeat(5);
     const result = restoreCommitSHA({ sha });
     expect(Option.isSome(result)).toStrictEqual(true);
-    if (Option.isSome(result)) {
-      expect(String(result.value)).toStrictEqual(sha);
-    }
+    const value = (result as Option.Some<typeof result.value>).value;
+    expect(String(value)).toStrictEqual(sha);
   });
 
   it("restores SHA with mixed valid hex digits 0-9 and a-f", () => {
