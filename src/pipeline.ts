@@ -69,13 +69,26 @@ const getAttempts = (state: CleanupState): AttemptCount =>
   );
 
 /**
+ * Whether a cleanup cycle is mid-progress (awaiting review or eval).
+ *
+ * @param runtime - The runtime state to check.
+ * @returns True if a cycle phase is pending.
+ */
+const isCycleInProgress = (runtime: RuntimeState): boolean =>
+  runtime.reviewPending || runtime.evalPending;
+
+/**
  * Check whether the pipeline should be skipped entirely.
+ *
+ * Allows mid-cycle continuation even without new mutations.
  *
  * @param runtime - The runtime state to check.
  * @returns True if the pipeline should not run.
  */
 const shouldSkip = (runtime: RuntimeState): boolean =>
-  !isActionable(runtime.cleanup) || runtime.cycleComplete || !runtime.mutationDetected;
+  !isActionable(runtime.cleanup) ||
+  runtime.cycleComplete ||
+  (!runtime.mutationDetected && !isCycleInProgress(runtime));
 
 /**
  * Check whether the attempt limit has been exceeded.
@@ -187,7 +200,10 @@ export const handleAgentEnd = async (
     return;
   }
 
-  if (await isGitUnchanged(pi.exec.bind(pi), runtime.lastCleanCommitSHA)) {
+  if (
+    !isCycleInProgress(runtime) &&
+    (await isGitUnchanged(pi.exec.bind(pi), runtime.lastCleanCommitSHA))
+  ) {
     runtime.mutationDetected = false;
 
     return;
