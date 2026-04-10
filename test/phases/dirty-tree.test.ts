@@ -132,51 +132,34 @@ describe("checkGitStatus", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildDirtyTreeMessage", () => {
-  it("includes the porcelain output in a fenced code block", () => {
+  it("returns the exact expected message with porcelain in a code block", () => {
     const msg = buildDirtyTreeMessage("M foo.ts\n?? bar.ts");
-    expect(msg).toContain("M foo.ts\n?? bar.ts");
-    expect(msg).toContain("```");
+
+    expect(msg).toBe(
+      [
+        "All quality gates pass. There are uncommitted changes in the working tree.",
+        "Please stage and commit all changes using proper conventional commit format.",
+        "",
+        "```",
+        "M foo.ts",
+        "?? bar.ts",
+        "```",
+      ].join("\n"),
+    );
   });
 
-  it("mentions committing and conventional commit format", () => {
-    const msg = buildDirtyTreeMessage("M foo.ts");
-    expect(msg.toLowerCase()).toContain("commit");
-    expect(msg.toLowerCase()).toContain("conventional commit");
-  });
+  it("works with single-file porcelain", () => {
+    const msg = buildDirtyTreeMessage("A new.ts");
 
-  it("mentions uncommitted changes", () => {
-    const msg = buildDirtyTreeMessage("M foo.ts");
-    expect(msg.toLowerCase()).toContain("uncommitted changes");
-  });
-
-  it("wraps porcelain in a fenced code block with opening and closing fences", () => {
-    const msg = buildDirtyTreeMessage("M foo.ts");
-    const lines = msg.split("\n");
-    const fenceLines = lines.filter((l) => l === "```");
-    expect(fenceLines.length).toBeGreaterThanOrEqual(2);
-  });
-
-  it("works with single-file porcelain output", () => {
-    const msg = buildDirtyTreeMessage("M single.ts");
-    expect(msg).toContain("single.ts");
-  });
-
-  it("works with multi-file porcelain output", () => {
-    const porcelain = "M a.ts\nA b.ts\nD c.ts\n?? d.ts";
-    const msg = buildDirtyTreeMessage(porcelain);
-    expect(msg).toContain("a.ts");
-    expect(msg).toContain("b.ts");
-    expect(msg).toContain("c.ts");
-    expect(msg).toContain("d.ts");
-  });
-
-  it("mentions quality gates", () => {
-    const msg = buildDirtyTreeMessage("M foo.ts");
-    expect(msg.toLowerCase()).toContain("quality gate");
-  });
-
-  it("returns a non-empty string", () => {
-    const msg = buildDirtyTreeMessage("M foo.ts");
-    expect(msg.length).toBeGreaterThan(0);
+    expect(msg).toBe(
+      [
+        "All quality gates pass. There are uncommitted changes in the working tree.",
+        "Please stage and commit all changes using proper conventional commit format.",
+        "",
+        "```",
+        "A new.ts",
+        "```",
+      ].join("\n"),
+    );
   });
 });

@@ -112,10 +112,7 @@ describe("getDefaultBaseSHA", () => {
 
     await getDefaultBaseSHA(trackingExec);
 
-    expect(calls.length).toBeGreaterThan(0);
-    expect(calls[0]!.cmd).toBe("git");
-    expect(calls[0]!.args[0]).toBe("merge-base");
-    expect(calls[0]!.args[1]).toBe("HEAD");
+    expect(calls[0]).toStrictEqual({ cmd: "git", args: ["merge-base", "HEAD", "main"] });
   });
 });
 
@@ -300,8 +297,7 @@ describe("checkAtomicity — NeedsFactoring", () => {
     await checkAtomicity(exec, Option.some(sha2));
     const revListCall = calls.find((c) => c.args[0] === "rev-list");
     expect(revListCall).toBeDefined();
-    expect(revListCall!.args).toContain("--count");
-    expect(revListCall!.args.some((a) => a.includes("..HEAD"))).toBe(true);
+    expect(revListCall!.args).toStrictEqual(["rev-list", "--count", `${String(sha2)}..HEAD`]);
   });
 });
 
@@ -310,68 +306,45 @@ describe("checkAtomicity — NeedsFactoring", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildFactorMessage", () => {
-  it("includes shortened base and head SHAs", () => {
+  const expected = [
+    "All gates pass. Now ensure recent commits are atomic.",
+    "",
+    "Commits in range: `aaaaaaaa..bbbbbbbb`",
+    "",
+    "Use the git-factor skill to split any commits that mix",
+    "multiple logical changes.",
+  ];
+
+  it("returns the exact message with no gate commands", () => {
     const msg = buildFactorMessage(sha1, sha2, []);
-    // sha1 = "a".repeat(40), first 8 chars = "aaaaaaaa"
-    expect(msg).toContain("aaaaaaaa");
-    // sha2 = "b".repeat(40), first 8 chars = "bbbbbbbb"
-    expect(msg).toContain("bbbbbbbb");
+
+    expect(msg).toBe(
+      [...expected, "Use `--exec ''` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
+        "\n",
+      ),
+    );
   });
 
-  it("includes the commit range in backtick format", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg).toContain("`aaaaaaaa..bbbbbbbb`");
-  });
-
-  it("includes a single gate command in --exec flag", () => {
+  it("returns the exact message with a single gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test")]);
-    expect(msg).toContain("--exec");
-    expect(msg).toContain("npm test");
+
+    expect(msg).toBe(
+      [...expected, "Use `--exec 'npm test'` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
+        "\n",
+      ),
+    );
   });
 
   it("joins multiple gate commands with &&", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test"), cmd("npm run lint")]);
-    expect(msg).toContain("npm test && npm run lint");
-  });
 
-  it("includes git-factor skill reference", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg.toLowerCase()).toContain("git-factor");
-  });
-
-  it("mentions atomic commits", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg.toLowerCase()).toContain("atomic");
-  });
-
-  it("works with no gate commands (empty exec)", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg).toContain("--exec");
-    // empty join produces "--exec ''"
-    expect(msg).toContain("''");
-  });
-
-  it("mentions all gates pass", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg.toLowerCase()).toContain("gates pass");
-  });
-
-  it("asks for confirmation after factoring", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg.toLowerCase()).toContain("confirm");
-  });
-
-  it("returns a multi-line string", () => {
-    const msg = buildFactorMessage(sha1, sha2, []);
-    expect(msg.split("\n").length).toBeGreaterThan(1);
-  });
-
-  it("three gate commands joined correctly", () => {
-    const msg = buildFactorMessage(sha1, sha2, [
-      cmd("npm test"),
-      cmd("npm run lint"),
-      cmd("npm run build"),
-    ]);
-    expect(msg).toContain("npm test && npm run lint && npm run build");
+    expect(msg).toBe(
+      [
+        ...expected,
+        "Use `--exec 'npm test && npm run lint'` as the validation gate.",
+        "",
+        "After factoring (or if no factoring needed), confirm done.",
+      ].join("\n"),
+    );
   });
 });

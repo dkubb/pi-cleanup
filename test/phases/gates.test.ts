@@ -80,7 +80,7 @@ describe("runGates — failure", () => {
     expect(result._tag).toBe("Failed");
     if (result._tag === "Failed") {
       expect(result.command).toBe("npm test");
-      expect(result.output).toContain("FAIL");
+      expect(result.output).toBe("FAIL\ndetails");
     }
   });
 
@@ -90,8 +90,7 @@ describe("runGates — failure", () => {
     const result = await runGates(exec, config);
     expect(result._tag).toBe("Failed");
     if (result._tag === "Failed") {
-      expect(result.output).toContain("stdout content");
-      expect(result.output).toContain("stderr content");
+      expect(result.output).toBe("stdout content\nstderr content");
     }
   });
 
@@ -190,55 +189,36 @@ describe("runGates — pass then fail sequence", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildGateFixMessage", () => {
-  it("includes the failed command name", () => {
+  it("returns the exact expected message with command and output", () => {
     const msg = buildGateFixMessage(cmd("npm test"), "FAIL: 2 tests");
-    expect(msg).toContain("npm test");
-  });
 
-  it("includes the failure output", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "FAIL: 2 tests");
-    expect(msg).toContain("FAIL: 2 tests");
-  });
-
-  it("wraps output in a fenced code block", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "some output");
-    expect(msg).toContain("```");
-    const lines = msg.split("\n");
-    const fenceCount = lines.filter((l) => l === "```").length;
-    expect(fenceCount).toBeGreaterThanOrEqual(2);
-  });
-
-  it("asks the agent to fix the issue and commit", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "error");
-    expect(msg.toLowerCase()).toContain("fix");
-    expect(msg.toLowerCase()).toContain("commit");
-  });
-
-  it("includes 'quality gate failed' context", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "error");
-    expect(msg.toLowerCase()).toContain("quality gate failed");
-  });
-
-  it("formats command in backticks inline", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "error");
-    expect(msg).toContain("`npm test`");
+    expect(msg).toBe(
+      [
+        "Quality gate failed: `npm test`",
+        "",
+        "```",
+        "FAIL: 2 tests",
+        "```",
+        "",
+        "Please fix the issue and commit the fix.",
+      ].join("\n"),
+    );
   });
 
   it("works with multi-line output", () => {
-    const output = "line 1\nline 2\nline 3";
-    const msg = buildGateFixMessage(cmd("npm test"), output);
-    expect(msg).toContain("line 1");
-    expect(msg).toContain("line 2");
-    expect(msg).toContain("line 3");
-  });
+    const msg = buildGateFixMessage(cmd("just check"), "line 1\nline 2");
 
-  it("works with complex command names", () => {
-    const msg = buildGateFixMessage(cmd("npx tsc --noEmit"), "error");
-    expect(msg).toContain("npx tsc --noEmit");
-  });
-
-  it("returns a non-empty string", () => {
-    const msg = buildGateFixMessage(cmd("npm test"), "error");
-    expect(msg.length).toBeGreaterThan(0);
+    expect(msg).toBe(
+      [
+        "Quality gate failed: `just check`",
+        "",
+        "```",
+        "line 1",
+        "line 2",
+        "```",
+        "",
+        "Please fix the issue and commit the fix.",
+      ].join("\n"),
+    );
   });
 });

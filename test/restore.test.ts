@@ -63,10 +63,9 @@ describe("restoreGateConfig — valid config", () => {
   it("filters out invalid commands from the array", () => {
     const data = { commands: ["npm test", "", "  ", "npm run lint"], description: "test" };
     const result = restoreGateConfig(data);
-    // Only valid non-empty trimmed commands should be kept
+    expect(Option.isSome(result)).toBe(true);
     if (Option.isSome(result)) {
-      expect(result.value.commands).toContain("npm test");
-      expect(result.value.commands).toContain("npm run lint");
+      expect(result.value.commands).toStrictEqual(["npm test", "npm run lint"]);
     }
   });
 
@@ -148,8 +147,7 @@ describe("restoreGateConfig — invalid / edge-case data", () => {
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toBe(true);
     if (Option.isSome(result)) {
-      expect(result.value.commands).toContain("npm test");
-      expect(result.value.commands).toContain("npm run lint");
+      expect(result.value.commands).toStrictEqual(["npm test", "npm run lint"]);
     }
   });
 });
