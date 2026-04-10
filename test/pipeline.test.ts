@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
+import { isGitUnchanged } from "../src/phases/git-status.js";
 import { runReviewIfNeeded } from "../src/pipeline.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { decodeCommitSHA } from "../src/types.js";
@@ -150,5 +151,50 @@ describe("runReviewIfNeeded", () => {
       Option.some(sha2),
     );
     expect(runtime.cycleActions).toContain("Delegated code review to subagent");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isGitUnchanged
+// ---------------------------------------------------------------------------
+
+describe("isGitUnchanged", () => {
+  it("returns false when no lastCleanCommitSHA", async () => {
+    const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: "" }));
+
+    const result = await isGitUnchanged(exec, Option.none());
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns false when HEAD differs from lastCleanCommitSHA", async () => {
+    const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: sha2 + "\n" }));
+
+    const result = await isGitUnchanged(exec, Option.some(sha1));
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns false when HEAD is invalid", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stderr: "error", stdout: "invalid\n" }));
+
+    const result = await isGitUnchanged(exec, Option.some(sha1));
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns false when HEAD matches but tree is dirty", async () => {
+    const exec = vi.fn()
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "M foo.ts\n" });
+
+    const result = await isGitUnchanged(exec, Option.some(sha1));
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns true when HEAD matches and tree is clean", async () => {
+    const exec = vi.fn()
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "" });
+
+    const result = await isGitUnchanged(exec, Option.some(sha1));
+    expect(result).toStrictEqual(true);
   });
 });

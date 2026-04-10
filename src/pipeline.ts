@@ -20,6 +20,7 @@ import {
   runGatePhase,
 } from "./pipeline-phases.js";
 import { isGitRepo } from "./phases/dirty-tree.js";
+import { isGitUnchanged } from "./phases/git-status.js";
 import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
@@ -148,16 +149,13 @@ interface ReviewPhaseContext {
 }
 
 /**
- * Run the code review phase if not yet complete.
- *
- * On the first pass, sends a message asking the agent to delegate
- * a code review to a subagent. On the second pass (after review),
- * marks the review as complete and proceeds.
+ * Run code review if not yet complete. First pass sends review
+ * request; second pass marks complete.
  *
  * @param phaseCtx - The review phase context.
  * @param headEither - The parsed HEAD SHA result.
  * @param baseSHA - The base SHA for the review range.
- * @returns True if the phase needs agent action (caller should return).
+ * @returns True if the phase needs agent action.
  */
 export const runReviewIfNeeded = (
   phaseCtx: ReviewPhaseContext,
@@ -195,9 +193,6 @@ export const runReviewIfNeeded = (
 
 /**
  * Capture HEAD as the cycle base SHA on first pipeline entry.
- *
- * This provides a reliable base for the atomicity commit range,
- * even on the default branch where merge-base returns HEAD itself.
  *
  * @param pi - The extension API for exec.
  * @param runtime - The mutable runtime state.
@@ -277,6 +272,12 @@ export const handleAgentEnd = async (
   ctx: ExtensionContext,
 ): Promise<void> => {
   if (shouldSkip(runtime) || checkMaxAttempts(runtime, ctx)) {
+    return;
+  }
+
+  if (await isGitUnchanged(pi.exec.bind(pi), runtime.lastCleanCommitSHA)) {
+    runtime.mutationDetected = false;
+
     return;
   }
 
