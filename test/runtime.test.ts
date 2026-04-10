@@ -30,11 +30,6 @@ describe("createInitialRuntimeState", () => {
     expect(runtime.cycleComplete).toStrictEqual(false);
   });
 
-  it("returns None for cycleBaseSHA", () => {
-    const runtime = createInitialRuntimeState();
-    expect(Option.isNone(runtime.cycleBaseSHA)).toStrictEqual(true);
-  });
-
   it("returns empty array for cycleActions", () => {
     const runtime = createInitialRuntimeState();
     expect(runtime.cycleActions).toStrictEqual([]);

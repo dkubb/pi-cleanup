@@ -28,8 +28,6 @@ export interface RuntimeState {
   evalPending: boolean;
   /** Whether the cleanup cycle completed (reset on next user prompt). */
   cycleComplete: boolean;
-  /** HEAD SHA captured at the start of this cleanup cycle. */
-  cycleBaseSHA: Option.Option<CommitSHA>;
   /** Actions taken during this cleanup cycle, for the collapse summary. */
   cycleActions: string[];
   /** Whether a file-mutating tool ran since the last completed cycle. */
@@ -54,7 +52,6 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   collapseAnchorId: Option.none(),
   commandCtx: Option.none(),
   cycleActions: [],
-  cycleBaseSHA: Option.none(),
   cycleComplete: false,
   evalPending: false,
   gateConfig: Option.none(),

@@ -10,6 +10,7 @@
 
 import { Either, Option } from "effect";
 
+import { getDefaultBaseSHA } from "./atomicity.js";
 import { type CommitSHA, decodeCommitSHA, type ExecFn } from "../types.js";
 
 /**
@@ -45,4 +46,25 @@ export const isGitUnchanged = async (
   const statusResult = await exec("git", ["status", "--porcelain"]);
 
   return statusResult.stdout.trim().length === 0;
+};
+
+/**
+ * Resolve the base SHA for review and atomicity phases.
+ *
+ * Uses lastCleanCommitSHA if available, otherwise falls back
+ * to the default branch merge-base.
+ *
+ * @param exec - The injected exec function.
+ * @param lastCleanSHA - The last clean commit SHA.
+ * @returns The base SHA, or None if indeterminate.
+ */
+export const resolveBaseSHA = async (
+  exec: ExecFn,
+  lastCleanSHA: Option.Option<CommitSHA>,
+): Promise<Option.Option<CommitSHA>> => {
+  if (Option.isSome(lastCleanSHA)) {
+    return lastCleanSHA;
+  }
+
+  return getDefaultBaseSHA(exec);
 };

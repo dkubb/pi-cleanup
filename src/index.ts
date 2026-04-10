@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Option } from "effect";
+import { Either, Option } from "effect";
 
 import { registerCleanupCommand, registerGatesCommand } from "./commands.js";
 import { ENTRY_TYPE_COMMIT, ENTRY_TYPE_GATES } from "./persistence.js";
@@ -18,6 +18,7 @@ import { restoreCommitSHA, restoreGateConfig } from "./restore.js";
 import { type RuntimeState, createInitialRuntimeState } from "./runtime.js";
 import { INITIAL_STATE, TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
+import { decodeCommitSHA } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -41,7 +42,6 @@ const resetRuntimeState = (runtime: RuntimeState): void => {
   runtime.lastCleanCommitSHA = Option.none();
   runtime.evalPending = false;
   runtime.cycleComplete = false;
-  runtime.cycleBaseSHA = Option.none();
   runtime.cycleActions = [];
   runtime.mutationDetected = true;
   runtime.reviewPending = false;
@@ -95,11 +95,20 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
 export default function onAgentEnd(pi: ExtensionAPI): void {
   const runtime = createInitialRuntimeState();
 
-  pi.on("session_start", (_event, ctx) => {
+  pi.on("session_start", async (_event, ctx) => {
     resetRuntimeState(runtime);
     restoreFromEntries(runtime, ctx.sessionManager.getEntries());
     runtime.cleanup = transition(runtime.cleanup, TransitionEvent.SessionStarted());
     updateStatus(ctx, runtime.cleanup);
+
+    if (Option.isNone(runtime.lastCleanCommitSHA)) {
+      const result = await pi.exec("git", ["rev-parse", "HEAD"]);
+      const headEither = decodeCommitSHA(result.stdout.trim());
+
+      if (Either.isRight(headEither)) {
+        runtime.lastCleanCommitSHA = Option.some(headEither.right);
+      }
+    }
   });
 
   // Reset the cleanup cycle when a new user-initiated prompt starts.
@@ -111,7 +120,6 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
       runtime.evalPending = false;
       runtime.reviewPending = false;
       runtime.reviewComplete = false;
-      runtime.cycleBaseSHA = Option.none();
       runtime.cycleActions = [];
     }
   });

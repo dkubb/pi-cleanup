@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Either, Match, Option, Schema } from "effect";
+import { Match, Option, Schema } from "effect";
 
 import {
   captureCollapseAnchor,
@@ -20,7 +20,7 @@ import {
   runGatePhase,
 } from "./pipeline-phases.js";
 import { isGitRepo } from "./phases/dirty-tree.js";
-import { isGitUnchanged } from "./phases/git-status.js";
+import { isGitUnchanged, resolveBaseSHA } from "./phases/git-status.js";
 import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
@@ -127,25 +127,6 @@ const runEvalOrComplete = async (
 };
 
 /**
- * Capture HEAD as the cycle base SHA on first pipeline entry.
- *
- * @param pi - The extension API for exec.
- * @param runtime - The mutable runtime state.
- */
-const captureCycleBase = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
-  if (Option.isSome(runtime.cycleBaseSHA)) {
-    return;
-  }
-
-  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
-  const headEither = decodeCommitSHA(headResult.stdout.trim());
-
-  if (Either.isRight(headEither)) {
-    runtime.cycleBaseSHA = Option.some(headEither.right);
-  }
-};
-
-/**
  * Run git-dependent phases: dirty tree + review + atomicity.
  *
  * @param pi - The extension API.
@@ -162,15 +143,13 @@ const runGitPhases = async (
     return false;
   }
 
-  await captureCycleBase(pi, runtime);
-
   if (await runDirtyTreePhase(pi, runtime, ctx)) {
     return true;
   }
 
   const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
   const headEither = decodeCommitSHA(headResult.stdout.trim());
-  const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
+  const baseSHA = await resolveBaseSHA(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
   const commitCount = await getCommitCount(pi, headEither, baseSHA);
 
   if (runReviewIfNeeded({ baseSHA, commitCount, headEither, phaseCtx: { ctx, pi, runtime } })) {

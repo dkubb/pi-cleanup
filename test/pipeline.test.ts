@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
-import { isGitUnchanged } from "../src/phases/git-status.js";
+import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
 import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { decodeCommitSHA } from "../src/types.js";
@@ -169,6 +169,42 @@ describe("getCommitCount", () => {
     });
     const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
     expect(result).toStrictEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// isGitUnchanged
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// resolveBaseSHA
+// ---------------------------------------------------------------------------
+
+describe("resolveBaseSHA", () => {
+  it("returns lastCleanSHA when present", async () => {
+    const exec = vi.fn();
+    const result = await resolveBaseSHA(exec, Option.some(sha1));
+
+    expect(Option.isSome(result)).toStrictEqual(true);
+    const value = (result as Option.Some<typeof sha1>).value;
+    expect(value).toStrictEqual(sha1);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("falls back to merge-base when no lastCleanSHA", async () => {
+    const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: sha2 + "\n" }));
+    const result = await resolveBaseSHA(exec, Option.none());
+
+    expect(Option.isSome(result)).toStrictEqual(true);
+    const value = (result as Option.Some<typeof sha2>).value;
+    expect(value).toStrictEqual(sha2);
+  });
+
+  it("returns None when no lastCleanSHA and no default branch", async () => {
+    const exec = vi.fn(async () => ({ code: 1, stderr: "", stdout: "" }));
+    const result = await resolveBaseSHA(exec, Option.none());
+
+    expect(Option.isNone(result)).toStrictEqual(true);
   });
 });
 
