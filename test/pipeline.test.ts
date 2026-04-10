@@ -124,7 +124,7 @@ describe("runReviewIfNeeded", () => {
     const { input, runtime } = makeReviewInput();
 
     runReviewIfNeeded(input);
-    expect(runtime.cycleActions).toContain("Delegated code review to subagent");
+    expect(runtime.cycleActions).toStrictEqual(["Delegated code review to subagent"]);
   });
 });
 

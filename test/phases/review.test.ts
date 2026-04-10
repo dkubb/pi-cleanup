@@ -22,44 +22,63 @@ describe("buildReviewCommand", () => {
 });
 
 describe("buildReviewMessage", () => {
-  it("includes the commit range", () => {
-    const msg = buildReviewMessage(sha1, sha2, 2);
-    expect(msg).toContain(`\`${"a".repeat(40)}..${"b".repeat(40)}\``);
-  });
-
-  it("includes commit count label for single commit", () => {
+  it("returns the exact expected message for a single commit", () => {
     const msg = buildReviewMessage(sha1, sha2, 1);
-    expect(msg).toContain("1 commit");
+
+    expect(msg).toStrictEqual(
+      [
+        `Code review required before atomizing commits (1 commit).`,
+        "",
+        `Commit range: \`${"a".repeat(40)}..${"b".repeat(40)}\``,
+        "",
+        "Please delegate a holistic code review to a subagent:",
+        "",
+        "**Code quality:**",
+        "- Review the diff for correctness, edge cases, and style",
+        "- Check for any regressions or incomplete changes",
+        "",
+        "**Commit messages:**",
+        "- Load the git-commit skill and validate messages against it",
+        "- Ensure each commit has a single clear purpose",
+        "",
+        "**Overall structure:**",
+        "- Verify changes are cohesive and well-organized",
+        "- Flag any concerns about the approach",
+        "",
+        `Use \`git --no-pager show ${"b".repeat(40)}\` to see the changes.`,
+        "",
+        "Address any issues found, then confirm the review passed.",
+      ].join("\n"),
+    );
   });
 
-  it("includes commit count label for multiple commits", () => {
+  it("returns the exact expected message for multiple commits", () => {
     const msg = buildReviewMessage(sha1, sha2, 5);
-    expect(msg).toContain("5 commits");
-  });
 
-  it("includes code quality review instructions", () => {
-    const msg = buildReviewMessage(sha1, sha2, 2);
-    expect(msg).toContain("Code quality");
-  });
-
-  it("includes commit message validation instructions", () => {
-    const msg = buildReviewMessage(sha1, sha2, 2);
-    expect(msg).toContain("Commit messages");
-    expect(msg).toContain("git-commit skill");
-  });
-
-  it("includes overall structure review", () => {
-    const msg = buildReviewMessage(sha1, sha2, 2);
-    expect(msg).toContain("Overall structure");
-  });
-
-  it("uses git show command for single commit", () => {
-    const msg = buildReviewMessage(sha1, sha2, 1);
-    expect(msg).toContain("git --no-pager show");
-  });
-
-  it("uses git log --patch command for multiple commits", () => {
-    const msg = buildReviewMessage(sha1, sha2, 3);
-    expect(msg).toContain("git --no-pager log --patch");
+    expect(msg).toStrictEqual(
+      [
+        `Code review required before atomizing commits (5 commits).`,
+        "",
+        `Commit range: \`${"a".repeat(40)}..${"b".repeat(40)}\``,
+        "",
+        "Please delegate a holistic code review to a subagent:",
+        "",
+        "**Code quality:**",
+        "- Review the diff for correctness, edge cases, and style",
+        "- Check for any regressions or incomplete changes",
+        "",
+        "**Commit messages:**",
+        "- Load the git-commit skill and validate messages against it",
+        "- Ensure each commit has a single clear purpose",
+        "",
+        "**Overall structure:**",
+        "- Verify changes are cohesive and well-organized",
+        "- Flag any concerns about the approach",
+        "",
+        `Use \`git --no-pager log --patch ${"a".repeat(40)}..${"b".repeat(40)}\` to see the changes.`,
+        "",
+        "Address any issues found, then confirm the review passed.",
+      ].join("\n"),
+    );
   });
 });
