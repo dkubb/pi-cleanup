@@ -1,0 +1,158 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": [
+    "typescript",
+    "unicorn",
+    "oxc",
+    "import",
+    "jsdoc",
+    "promise",
+    "node"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "pedantic": "error",
+    "perf": "error",
+    "style": "error",
+    "restriction": "error"
+  },
+  "rules": {
+    // ── Inapplicable: No React/Vue/JSX/Jest in this project ──
+
+    // No React UI framework
+    "react/button-has-type": "off",
+    "react/forbid-dom-props": "off",
+    "react/forbid-elements": "off",
+    "react/jsx-filename-extension": "off",
+    "react/no-clone-element": "off",
+    "react/no-danger": "off",
+    "react/no-multi-comp": "off",
+    "react/no-react-children": "off",
+    "react/no-unknown-property": "off",
+    "react/only-export-components": "off",
+    "react/prefer-function-component": "off",
+
+    // No JSX accessibility concerns
+    "jsx_a11y/anchor-ambiguous-text": "off",
+
+    // No Vue framework
+    "vue/max-props": "off",
+    "vue/no-import-compiler-macros": "off",
+    "vue/no-multiple-slot-args": "off",
+
+    // No Vitest/Jest test files in the extension source
+    "vitest/require-test-timeout": "off",
+
+    // ── TypeScript makes these redundant ──
+
+    // TS signatures already declare param and return types; JSDoc
+    // @param/@returns types would be duplicated and could drift
+    "jsdoc/require-param-type": "off",
+    "jsdoc/require-returns-type": "off",
+    "jsdoc/require-property-type": "off",
+
+    // ── Conflicts with idiomatic TypeScript / Effect patterns ──
+
+    // Extension is async throughout; disabling async/await is not viable
+    "oxc/no-async-await": "off",
+
+    // Optional chaining (?.) is idiomatic TS for safe property access
+    "oxc/no-optional-chaining": "off",
+
+    // Rest/spread is idiomatic TS for immutable data transformations
+    "oxc/no-rest-spread-properties": "off",
+
+    // Effect Data.TaggedEnum uses {} for variants with no payload;
+    // this is required by the API, not a design choice
+    "typescript/no-empty-object-type": "off",
+    "typescript/ban-types": "off",
+
+    // Effect Data.taggedEnum constructors are PascalCase functions
+    // (e.g., CleanupState.Idle()), not classes — new-cap flags them
+    "eslint/new-cap": "off",
+
+    // ── Conflicts with project module structure ──
+
+    // Pi extensions require a default export from index.ts; other
+    // modules use named exports for tree-shakeable imports
+    "import/no-default-export": "off",
+
+    // Named exports are the standard pattern; a single default
+    // export per module is not appropriate for utility modules
+    "import/no-named-export": "off",
+
+    // Grouping all exports at the bottom harms readability when
+    // types and their constructors are co-located
+    "import/group-exports": "off",
+    "import/exports-last": "off",
+
+    // phases/ subdirectory legitimately imports from parent types.ts;
+    // restructuring to avoid this would flatten the directory structure
+    "import/no-relative-parent-imports": "off",
+
+    // Conflicts with verbatimModuleSyntax in tsconfig which already
+    // enforces type-only imports at the language level
+    "import/consistent-type-specifier-style": "off",
+
+    // oxlint's sort-imports conflicts with oxfmt's import ordering;
+    // let the formatter be the single authority on import order
+    "eslint/sort-imports": "off",
+
+    // ESM project — CommonJS and AMD are not used
+    "import/no-commonjs": "off",
+    "import/no-amd": "off",
+
+    // oxlint cannot resolve .js extensions in TypeScript ESM imports
+    // (e.g., import from "./types.js" where the source is types.ts)
+    "import/extensions": "off",
+
+    // ── Overly restrictive for this codebase ──
+
+    // const enum is useful for zero-runtime-cost enumerations in a
+    // TypeScript-only project (no JS consumers)
+    "oxc/no-const-enum": "off",
+
+    // index.ts barrel file is the pi extension entry point
+    "oxc/no-barrel-file": "off",
+
+    // Extensions use console.warn/error for diagnostics visible in
+    // pi's extension error log
+    "eslint/no-console": "off",
+
+    // TypeScript's strict null checks use undefined natively;
+    // banning it conflicts with the language's design
+    "eslint/no-undefined": "off",
+
+    // Standard for-loop increment (i++) is idiomatic and clear
+    "eslint/no-plusplus": "off",
+
+    // Stub functions during development have empty bodies; this
+    // rule can be re-enabled once all functions are implemented
+    "eslint/no-empty-function": "off",
+
+    // Magic numbers like timeout durations (120_000) and attempt
+    // limits (5) are clearer inline with context than as distant
+    // named constants
+    "eslint/no-magic-numbers": "off",
+
+    // Single-letter generics (T) are standard TypeScript convention
+    // for type parameters
+    "eslint/id-length": "off",
+
+    // Extension runtime may need process.env for config file paths
+    "node/no-process-env": "off",
+
+    // TODO comments mark stub functions awaiting implementation;
+    // re-enable once all stubs are implemented
+    "eslint/no-warning-comments": "off",
+
+    // Stub async functions don't have await yet; they will once
+    // implemented. Re-enable once all stubs are implemented
+    "eslint/require-await": "off"
+  },
+  "env": {
+    "builtin": true,
+    "node": true
+  }
+}
