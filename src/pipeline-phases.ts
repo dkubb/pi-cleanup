@@ -223,13 +223,11 @@ export interface AtomicityPhaseContext {
   readonly runtime: RuntimeState;
   readonly ctx: ExtensionContext;
   readonly gateConfig: GateConfig;
+  readonly baseSHA: Option.Option<CommitSHA>;
 }
 
 /** Context for handling a successful atomicity result. */
-interface AtomicitySuccessContext {
-  readonly pi: ExtensionAPI;
-  readonly runtime: RuntimeState;
-  readonly ctx: ExtensionContext;
+interface AtomicitySuccessContext extends Pick<AtomicityPhaseContext, "pi" | "runtime" | "ctx"> {
   readonly event: TransitionEvent;
   readonly headSHA: CommitSHA;
 }
@@ -255,8 +253,8 @@ const handleAtomicitySuccess = (sc: AtomicitySuccessContext): void => {
  * @returns True if atomicity passed (caller should proceed to eval).
  */
 export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promise<boolean> => {
-  const { pi, runtime, ctx, gateConfig } = phaseCtx;
-  const result = await checkAtomicity(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
+  const { pi, runtime, ctx, gateConfig, baseSHA } = phaseCtx;
+  const result = await checkAtomicity(pi.exec.bind(pi), baseSHA);
 
   return Match.value(result).pipe(
     Match.tag("NeedsFactoring", (r): false => {

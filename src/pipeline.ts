@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Match, Option, Schema } from "effect";
+import { Either, Match, Option, Schema } from "effect";
 
 import {
   checkConvergence,
@@ -22,7 +22,7 @@ import {
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
-import { AttemptCount as AttemptCountSchema, type AttemptCount } from "./types.js";
+import { AttemptCount as AttemptCountSchema, type AttemptCount, decodeCommitSHA } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -131,6 +131,28 @@ const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   collapseBoomerangIfNeeded(pi, runtime);
 };
 
+/**
+ * Capture HEAD as the cycle base SHA on first pipeline entry.
+ *
+ * This provides a reliable base for the atomicity commit range,
+ * even on the default branch where merge-base returns HEAD itself.
+ *
+ * @param pi - The extension API for exec.
+ * @param runtime - The mutable runtime state.
+ */
+const captureCycleBase = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
+  if (Option.isSome(runtime.cycleBaseSHA)) {
+    return;
+  }
+
+  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
+  const headEither = decodeCommitSHA(headResult.stdout.trim());
+
+  if (Either.isRight(headEither)) {
+    runtime.cycleBaseSHA = Option.some(headEither.right);
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -159,6 +181,8 @@ export const handleAgentEnd = async (
     return;
   }
 
+  await captureCycleBase(pi, runtime);
+
   if (await runGatePhase(pi, runtime, ctx)) {
     return;
   }
@@ -169,8 +193,9 @@ export const handleAgentEnd = async (
 
   // Gate config guaranteed Some by runGatePhase guard
   const gateConfig = Option.getOrThrow(runtime.gateConfig);
+  const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
 
-  if (!(await runAtomicityPhase({ ctx, gateConfig, pi, runtime }))) {
+  if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
     return;
   }
 

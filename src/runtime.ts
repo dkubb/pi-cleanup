@@ -32,6 +32,8 @@ export interface RuntimeState {
   evalPending: boolean;
   /** Whether the cleanup cycle completed (reset on next user prompt). */
   cycleComplete: boolean;
+  /** HEAD SHA captured at the start of this cleanup cycle. */
+  cycleBaseSHA: Option.Option<CommitSHA>;
   /** Actions taken during this cleanup cycle, for the collapse summary. */
   cycleActions: string[];
 }
@@ -46,6 +48,7 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   boomerangAvailable: false,
   cleanup: INITIAL_STATE,
   cycleActions: [],
+  cycleBaseSHA: Option.none(),
   cycleComplete: false,
   evalPending: false,
   gateConfig: Option.none(),

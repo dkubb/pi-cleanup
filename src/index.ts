@@ -46,6 +46,7 @@ const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.boomerangAvailable = pi.getAllTools().some((tool) => tool.name === "boomerang");
   runtime.evalPending = false;
   runtime.cycleComplete = false;
+  runtime.cycleBaseSHA = Option.none();
   runtime.cycleActions = [];
 };
 
@@ -129,6 +130,7 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     if (event.source !== "extension" && runtime.cycleComplete) {
       runtime.cycleComplete = false;
       runtime.evalPending = false;
+      runtime.cycleBaseSHA = Option.none();
       runtime.cycleActions = [];
     }
   });
