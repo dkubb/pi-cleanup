@@ -215,6 +215,8 @@ export type AwaitingReason = Data.TaggedEnum<{
     /** The attempt count when the stall occurred. */
     readonly attempts: AttemptCount;
   };
+  /** Boomerang extension not detected. Install and `/reload` to unblock. */
+  readonly BoomerangMissing: {};
 }>;
 
 /** Constructor namespace for {@link AwaitingReason} variants. */

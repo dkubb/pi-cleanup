@@ -16,8 +16,9 @@ import { ENTRY_TYPE_COMMIT, ENTRY_TYPE_GATES } from "./persistence.js";
 import { handleAgentEnd } from "./pipeline.js";
 import { restoreCommitSHA, restoreGateConfig } from "./restore.js";
 import { type RuntimeState, createInitialRuntimeState } from "./runtime.js";
-import { INITIAL_STATE, TransitionEvent, transition } from "./state-machine.js";
+import { CleanupState, INITIAL_STATE, TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
+import { AwaitingReason } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Boomerang Coexistence
@@ -92,10 +93,16 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
  */
 const notifyStartupWarnings = (runtime: RuntimeState, ctx: ExtensionContext): void => {
   if (!runtime.boomerangAvailable) {
+    runtime.cleanup = CleanupState.AwaitingUserInput({
+      reason: AwaitingReason.BoomerangMissing(),
+    });
+    updateStatus(ctx, runtime.cleanup);
     ctx.ui.notify(
-      "Boomerang not detected. Cleanup will work but won't collapse context.",
-      "warning",
+      "Boomerang extension required but not detected. Install boomerang and /reload to enable cleanup.",
+      "error",
     );
+
+    return;
   }
 
   if (Option.isNone(runtime.gateConfig)) {

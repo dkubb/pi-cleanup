@@ -54,12 +54,30 @@ describe("updateStatus", () => {
     expect(setStatus).toHaveBeenCalledWith("cleanup", "[warning]🔧 factoring (attempt 1)");
   });
 
-  it("AwaitingUserInput: shows muted stalled message", () => {
+  it("AwaitingUserInput(GatesUnconfigured): shows muted stalled message", () => {
     const { ctx, setStatus, themeFg } = makeCtx();
     updateStatus(ctx, CleanupState.AwaitingUserInput({ reason: AwaitingReason.GatesUnconfigured() }));
 
     expect(themeFg).toHaveBeenCalledWith("muted", "⏸ cleanup stalled");
     expect(setStatus).toHaveBeenCalledWith("cleanup", "[muted]⏸ cleanup stalled");
+  });
+
+  it("AwaitingUserInput(Stalled): shows muted stalled message", () => {
+    const { ctx, setStatus, themeFg } = makeCtx();
+    updateStatus(ctx, CleanupState.AwaitingUserInput({
+      reason: AwaitingReason.Stalled({ phase: "WaitingForGateFix", attempts: attempt(5) }),
+    }));
+
+    expect(themeFg).toHaveBeenCalledWith("muted", "⏸ cleanup stalled");
+    expect(setStatus).toHaveBeenCalledWith("cleanup", "[muted]⏸ cleanup stalled");
+  });
+
+  it("AwaitingUserInput(BoomerangMissing): shows error boomerang required message", () => {
+    const { ctx, setStatus, themeFg } = makeCtx();
+    updateStatus(ctx, CleanupState.AwaitingUserInput({ reason: AwaitingReason.BoomerangMissing() }));
+
+    expect(themeFg).toHaveBeenCalledWith("error", "⛔ boomerang required");
+    expect(setStatus).toHaveBeenCalledWith("cleanup", "[error]⛔ boomerang required");
   });
 
   it("Disabled: shows muted off message", () => {

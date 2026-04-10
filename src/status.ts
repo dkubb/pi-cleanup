@@ -12,6 +12,7 @@ import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Match } from "effect";
 
 import type { CleanupState } from "./state-machine.js";
+import type { AwaitingReason } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Status Widget
@@ -19,6 +20,21 @@ import type { CleanupState } from "./state-machine.js";
 
 /** Key used with `ctx.ui.setStatus` to identify this extension's indicator. */
 export const STATUS_KEY = "cleanup" as const;
+
+/**
+ * Format the status text for an AwaitingUserInput state.
+ *
+ * @param ctx - The extension context for theming.
+ * @param reason - The awaiting reason variant.
+ * @returns Themed status text.
+ */
+const formatAwaitingStatus = (ctx: ExtensionContext, reason: AwaitingReason): string =>
+  Match.value(reason).pipe(
+    Match.tag("BoomerangMissing", (): string => ctx.ui.theme.fg("error", "⛔ boomerang required")),
+    Match.tag("GatesUnconfigured", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
+    Match.tag("Stalled", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
+    Match.exhaustive,
+  );
 
 /**
  * Update the footer status indicator to reflect the current cleanup state.
@@ -57,7 +73,7 @@ export const updateStatus = (ctx: ExtensionContext, state: CleanupState): void =
     Match.tag("WaitingForFactoring", (s): string =>
       ctx.ui.theme.fg("warning", `🔧 factoring (attempt ${String(s.attempts)})`),
     ),
-    Match.tag("AwaitingUserInput", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
+    Match.tag("AwaitingUserInput", (s): string => formatAwaitingStatus(ctx, s.reason)),
     Match.tag("Disabled", (): string => ctx.ui.theme.fg("muted", "cleanup off")),
     Match.exhaustive,
   );
