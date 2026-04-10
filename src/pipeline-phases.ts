@@ -3,8 +3,6 @@
  *
  * Each phase is a self-contained async function that runs one step
  * of the cleanup pipeline: gates, dirty tree, atomicity, or eval.
- * They share a common dispatch/boomerang pattern factored into
- * helpers.
  *
  * @module
  */
@@ -38,24 +36,24 @@ export const dispatch = (
 };
 
 /**
- * Prepend a boomerang anchor instruction to a message if needed.
+ * Capture the current leaf entry ID as the collapse anchor.
  *
- * On the first fix message of a cleanup cycle, instructs the LLM
- * to call the boomerang tool to set an anchor point. Subsequent
- * messages skip the instruction since the anchor is already set.
+ * Called before the first cleanup message of a cycle so that
+ * `navigateTree` can collapse back to this point after completion.
  *
  * @param runtime - The mutable runtime state.
- * @param message - The fix message to potentially wrap.
- * @returns The message with anchor instruction prepended, or as-is.
+ * @param ctx - The extension context for session access.
  */
-export const withBoomerangAnchor = (runtime: RuntimeState, message: string): string => {
-  if (runtime.boomerangAvailable && !runtime.boomerangAnchorSet) {
-    runtime.boomerangAnchorSet = true;
-
-    return `First, call the boomerang tool with no arguments to set an anchor point. Then:\n\n${message}`;
+export const captureCollapseAnchor = (runtime: RuntimeState, ctx: ExtensionContext): void => {
+  if (Option.isSome(runtime.collapseAnchorId)) {
+    return;
   }
 
-  return message;
+  const leafId = ctx.sessionManager.getLeafId();
+
+  if (leafId !== null) {
+    runtime.collapseAnchorId = Option.some(leafId);
+  }
 };
 
 /**
@@ -64,7 +62,7 @@ export const withBoomerangAnchor = (runtime: RuntimeState, message: string): str
  * @param actions - The raw action strings.
  * @returns Formatted bullet list, or a default message.
  */
-const formatCycleActions = (actions: readonly string[]): string => {
+export const formatCycleActions = (actions: readonly string[]): string => {
   if (actions.length > 0) {
     return actions.map((a) => `- ${a}`).join("\n");
   }
@@ -73,33 +71,33 @@ const formatCycleActions = (actions: readonly string[]): string => {
 };
 
 /**
- * Build a collapse summary describing what the cleanup cycle did.
+ * Collapse cleanup context via navigateTree if an anchor is set.
  *
- * @param runtime - The runtime state with cycle actions.
- * @returns A formatted summary string for the collapse message.
- */
-const buildCollapseSummary = (runtime: RuntimeState): string =>
-  [
-    "Cleanup complete. Actions taken during this cycle:",
-    formatCycleActions(runtime.cycleActions),
-    "",
-    "Call the boomerang tool with no arguments to collapse the cleanup context.",
-  ].join("\n");
-
-/**
- * Send a boomerang collapse message if an anchor is currently active.
+ * Navigates back to the anchor entry ID captured at the start of
+ * the cleanup cycle, summarizing all cleanup turns in between.
+ * Requires a stored command context with navigateTree access.
  *
- * Includes a summary of what the cleanup cycle did so the LLM
- * retains context after the collapse.
- *
- * @param pi - The extension API for sending messages.
  * @param runtime - The mutable runtime state.
+ * @returns True if collapse was performed, false otherwise.
  */
-export const collapseBoomerangIfNeeded = (pi: ExtensionAPI, runtime: RuntimeState): void => {
-  if (runtime.boomerangAnchorSet) {
-    pi.sendUserMessage(buildCollapseSummary(runtime));
-    runtime.boomerangAnchorSet = false;
+export const collapseIfNeeded = async (runtime: RuntimeState): Promise<boolean> => {
+  if (Option.isNone(runtime.collapseAnchorId) || Option.isNone(runtime.commandCtx)) {
+    return false;
   }
+
+  const anchorId = runtime.collapseAnchorId.value;
+  const commandCtx = runtime.commandCtx.value;
+
+  runtime.collapseAnchorId = Option.none();
+
+  await commandCtx.navigateTree(anchorId, {
+    customInstructions: ["Cleanup cycle summary:", formatCycleActions(runtime.cycleActions)].join(
+      "\n",
+    ),
+    summarize: true,
+  });
+
+  return true;
 };
 
 /**
@@ -138,7 +136,6 @@ export const checkConvergence = async (
   dispatch(runtime, ctx, TransitionEvent.FactoringConverged({ headSHA }));
   persistCleanCommit(pi.appendEntry.bind(pi), headSHA);
   runtime.lastCleanCommitSHA = Option.some(headSHA);
-  collapseBoomerangIfNeeded(pi, runtime);
 
   return true;
 };
@@ -172,7 +169,8 @@ export const runGatePhase = async (
     Match.tag("Failed", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GateFailed(r));
       runtime.cycleActions.push(`Fixed failing gate: \`${String(r.command)}\``);
-      pi.sendUserMessage(withBoomerangAnchor(runtime, buildGateFixMessage(r.command, r.output)));
+      captureCollapseAnchor(runtime, ctx);
+      pi.sendUserMessage(buildGateFixMessage(r.command, r.output));
 
       return true;
     }),
@@ -203,7 +201,8 @@ export const runDirtyTreePhase = async (
     Match.tag("Dirty", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GitDirty(r));
       runtime.cycleActions.push("Committed uncommitted changes");
-      pi.sendUserMessage(withBoomerangAnchor(runtime, buildDirtyTreeMessage(r.porcelain)));
+      captureCollapseAnchor(runtime, ctx);
+      pi.sendUserMessage(buildDirtyTreeMessage(r.porcelain));
 
       return true;
     }),
@@ -260,9 +259,8 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
     Match.tag("NeedsFactoring", (r): false => {
       dispatch(runtime, ctx, TransitionEvent.NeedsFactoring(r));
       runtime.cycleActions.push(`Factored ${String(r.commitCount)} commits into atomic units`);
-      pi.sendUserMessage(
-        withBoomerangAnchor(runtime, buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands)),
-      );
+      captureCollapseAnchor(runtime, ctx);
+      pi.sendUserMessage(buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands));
 
       return false;
     }),

@@ -186,10 +186,21 @@ const handleCleanupStatus = (runtime: RuntimeState, ctx: ExtensionCommandContext
  * @param pi - The extension API.
  * @param runtime - The runtime state.
  */
+/**
+ * Store the command context for navigateTree collapse.
+ *
+ * @param runtime - The runtime state.
+ * @param ctx - The command context to store.
+ */
+const storeCommandCtx = (runtime: RuntimeState, ctx: ExtensionCommandContext): void => {
+  runtime.commandCtx = Option.some({ navigateTree: ctx.navigateTree.bind(ctx) });
+};
+
 export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   pi.registerCommand("gates", {
     description: "Configure quality gate commands (no args: editor, show, clear)",
     handler: async (args, ctx) => {
+      storeCommandCtx(runtime, ctx);
       const trimmed = args.trim();
 
       if (trimmed === "show") {
@@ -219,6 +230,7 @@ export const registerCleanupCommand = (pi: ExtensionAPI, runtime: RuntimeState):
   pi.registerCommand("cleanup", {
     description: "Control cleanup extension (on, off, resume, status)",
     handler: async (args, ctx) => {
+      storeCommandCtx(runtime, ctx);
       const trimmed = args.trim();
 
       if (trimmed === "on") {

@@ -3,7 +3,7 @@
  *
  * Wires the phase runners (gates → dirty tree → atomicity → eval)
  * into the `agent_end` handler with guard checks, attempt limiting,
- * and boomerang collapse.
+ * and navigateTree collapse.
  *
  * @module
  */
@@ -12,12 +12,12 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Either, Match, Option, Schema } from "effect";
 
 import {
+  captureCollapseAnchor,
   checkConvergence,
-  collapseBoomerangIfNeeded,
+  collapseIfNeeded,
   runAtomicityPhase,
   runDirtyTreePhase,
   runGatePhase,
-  withBoomerangAnchor,
 } from "./pipeline-phases.js";
 import { isGitRepo } from "./phases/dirty-tree.js";
 import type { RuntimeState } from "./runtime.js";
@@ -73,17 +73,14 @@ const getAttempts = (state: CleanupState): AttemptCount =>
  * Check whether the pipeline should be skipped entirely.
  *
  * Skips when the state machine is not actionable (Disabled or
- * AwaitingUserInput), when boomerang is mid-collapse, or when
- * no file-mutating tools have run since the last completed cycle.
+ * AwaitingUserInput), when no file-mutating tools have run since
+ * the last completed cycle, or when the cycle is already complete.
  *
  * @param runtime - The runtime state to check.
  * @returns True if the pipeline should not run.
  */
 const shouldSkip = (runtime: RuntimeState): boolean =>
-  !isActionable(runtime.cleanup) ||
-  runtime.cycleComplete ||
-  !runtime.mutationDetected ||
-  globalThis.__boomerangCollapseInProgress === true;
+  !isActionable(runtime.cleanup) || runtime.cycleComplete || !runtime.mutationDetected;
 
 /**
  * Check whether the attempt limit has been exceeded.
@@ -115,15 +112,22 @@ const checkMaxAttempts = (runtime: RuntimeState, ctx: ExtensionContext): boolean
  *
  * On the first pass after all phases succeed, sends an eval prompt
  * asking the LLM to verify its work is complete. On the second
- * pass (after eval), finalizes by collapsing boomerang context.
+ * pass (after eval), finalizes by collapsing cleanup context via
+ * navigateTree.
  *
  * @param pi - The extension API for sending messages.
  * @param runtime - The mutable runtime state.
+ * @param ctx - The extension context for session access.
  */
-const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
+const runEvalOrComplete = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+  ctx: ExtensionContext,
+): Promise<void> => {
   if (!runtime.evalPending) {
     runtime.evalPending = true;
-    pi.sendUserMessage(withBoomerangAnchor(runtime, EVAL_MESSAGE));
+    captureCollapseAnchor(runtime, ctx);
+    pi.sendUserMessage(EVAL_MESSAGE);
 
     return;
   }
@@ -132,7 +136,7 @@ const runEvalOrComplete = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   runtime.cycleComplete = true;
   runtime.mutationDetected = false;
   runtime.cycleActions.push("Verified task completion");
-  collapseBoomerangIfNeeded(pi, runtime);
+  await collapseIfNeeded(runtime);
 };
 
 /**
@@ -231,5 +235,5 @@ export const handleAgentEnd = async (
     return;
   }
 
-  runEvalOrComplete(pi, runtime);
+  await runEvalOrComplete(pi, runtime, ctx);
 };

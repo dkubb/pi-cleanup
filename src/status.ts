@@ -30,7 +30,6 @@ export const STATUS_KEY = "cleanup" as const;
  */
 const formatAwaitingStatus = (ctx: ExtensionContext, reason: AwaitingReason): string =>
   Match.value(reason).pipe(
-    Match.tag("BoomerangMissing", (): string => ctx.ui.theme.fg("error", "⛔ boomerang required")),
     Match.tag("GatesUnconfigured", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
     Match.tag("Stalled", (): string => ctx.ui.theme.fg("muted", "⏸ cleanup stalled")),
     Match.exhaustive,

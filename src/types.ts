@@ -9,7 +9,11 @@
  * @module
  */
 
-import type { ExecOptions, ExecResult } from "@mariozechner/pi-coding-agent";
+import type {
+  ExecOptions,
+  ExecResult,
+  ExtensionCommandContext,
+} from "@mariozechner/pi-coding-agent";
 import { Data, Schema } from "effect";
 
 // ---------------------------------------------------------------------------
@@ -215,9 +219,22 @@ export type AwaitingReason = Data.TaggedEnum<{
     /** The attempt count when the stall occurred. */
     readonly attempts: AttemptCount;
   };
-  /** Boomerang extension not detected. Install and `/reload` to unblock. */
-  readonly BoomerangMissing: {};
 }>;
 
 /** Constructor namespace for {@link AwaitingReason} variants. */
 export const AwaitingReason = Data.taggedEnum<AwaitingReason>();
+
+// ---------------------------------------------------------------------------
+// Command Context Reference
+// ---------------------------------------------------------------------------
+
+/**
+ * Subset of ExtensionCommandContext needed for collapse.
+ *
+ * Stored in RuntimeState so the `agent_end` handler can call
+ * `navigateTree` without requiring a full command context.
+ */
+export interface CommandContextRef {
+  /** Navigate to a point in the session tree, collapsing in between. */
+  readonly navigateTree: ExtensionCommandContext["navigateTree"];
+}

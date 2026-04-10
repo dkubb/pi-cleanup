@@ -72,14 +72,6 @@ describe("updateStatus", () => {
     expect(setStatus).toHaveBeenCalledWith("cleanup", "[muted]⏸ cleanup stalled");
   });
 
-  it("AwaitingUserInput(BoomerangMissing): shows error boomerang required message", () => {
-    const { ctx, setStatus, themeFg } = makeCtx();
-    updateStatus(ctx, CleanupState.AwaitingUserInput({ reason: AwaitingReason.BoomerangMissing() }));
-
-    expect(themeFg).toHaveBeenCalledWith("error", "⛔ boomerang required");
-    expect(setStatus).toHaveBeenCalledWith("cleanup", "[error]⛔ boomerang required");
-  });
-
   it("Disabled: shows muted off message", () => {
     const { ctx, setStatus, themeFg } = makeCtx();
     updateStatus(ctx, CleanupState.Disabled());

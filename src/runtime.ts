@@ -10,7 +10,7 @@
 import { Option } from "effect";
 
 import { INITIAL_STATE, type CleanupState } from "./state-machine.js";
-import type { CommitSHA, GateConfig } from "./types.js";
+import type { CommandContextRef, CommitSHA, GateConfig } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Runtime State
@@ -24,10 +24,6 @@ export interface RuntimeState {
   gateConfig: Option.Option<GateConfig>;
   /** Last commit SHA where cleanup completed successfully. */
   lastCleanCommitSHA: Option.Option<CommitSHA>;
-  /** Whether the boomerang tool is available. */
-  boomerangAvailable: boolean;
-  /** Whether a boomerang anchor has been set for this cleanup cycle. */
-  boomerangAnchorSet: boolean;
   /** Whether a completion eval has been sent and is awaiting re-check. */
   evalPending: boolean;
   /** Whether the cleanup cycle completed (reset on next user prompt). */
@@ -38,6 +34,10 @@ export interface RuntimeState {
   cycleActions: string[];
   /** Whether a file-mutating tool ran since the last completed cycle. */
   mutationDetected: boolean;
+  /** Stored command context for navigateTree collapse. */
+  commandCtx: Option.Option<CommandContextRef>;
+  /** Leaf entry ID captured before the first cleanup message. */
+  collapseAnchorId: Option.Option<string>;
 }
 
 /**
@@ -46,9 +46,9 @@ export interface RuntimeState {
  * @returns A RuntimeState with Idle cleanup, no gates, and no clean SHA.
  */
 export const createInitialRuntimeState = (): RuntimeState => ({
-  boomerangAnchorSet: false,
-  boomerangAvailable: false,
   cleanup: INITIAL_STATE,
+  collapseAnchorId: Option.none(),
+  commandCtx: Option.none(),
   cycleActions: [],
   cycleBaseSHA: Option.none(),
   cycleComplete: false,

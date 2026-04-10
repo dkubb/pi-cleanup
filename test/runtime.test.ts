@@ -20,16 +20,6 @@ describe("createInitialRuntimeState", () => {
     expect(Option.isNone(runtime.lastCleanCommitSHA)).toStrictEqual(true);
   });
 
-  it("returns false for boomerangAvailable", () => {
-    const runtime = createInitialRuntimeState();
-    expect(runtime.boomerangAvailable).toStrictEqual(false);
-  });
-
-  it("returns false for boomerangAnchorSet", () => {
-    const runtime = createInitialRuntimeState();
-    expect(runtime.boomerangAnchorSet).toStrictEqual(false);
-  });
-
   it("returns false for evalPending", () => {
     const runtime = createInitialRuntimeState();
     expect(runtime.evalPending).toStrictEqual(false);
@@ -53,5 +43,15 @@ describe("createInitialRuntimeState", () => {
   it("returns true for mutationDetected", () => {
     const runtime = createInitialRuntimeState();
     expect(runtime.mutationDetected).toStrictEqual(true);
+  });
+
+  it("returns None for commandCtx", () => {
+    const runtime = createInitialRuntimeState();
+    expect(Option.isNone(runtime.commandCtx)).toStrictEqual(true);
+  });
+
+  it("returns None for collapseAnchorId", () => {
+    const runtime = createInitialRuntimeState();
+    expect(Option.isNone(runtime.collapseAnchorId)).toStrictEqual(true);
   });
 });

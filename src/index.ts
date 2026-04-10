@@ -16,9 +16,8 @@ import { ENTRY_TYPE_COMMIT, ENTRY_TYPE_GATES } from "./persistence.js";
 import { handleAgentEnd } from "./pipeline.js";
 import { restoreCommitSHA, restoreGateConfig } from "./restore.js";
 import { type RuntimeState, createInitialRuntimeState } from "./runtime.js";
-import { CleanupState, INITIAL_STATE, TransitionEvent, transition } from "./state-machine.js";
+import { INITIAL_STATE, TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
-import { AwaitingReason } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -28,35 +27,24 @@ import { AwaitingReason } from "./types.js";
 const MUTATION_TOOLS = new Set(["bash", "edit", "write"]);
 
 // ---------------------------------------------------------------------------
-// Boomerang Coexistence
-// ---------------------------------------------------------------------------
-
-declare global {
-  // eslint-disable-next-line no-var -- Must be var for global declaration
-  var __boomerangCollapseInProgress: boolean | undefined;
-}
-
-// ---------------------------------------------------------------------------
 // Session Restoration Helpers
 // ---------------------------------------------------------------------------
 
 /**
  * Reset runtime state to initial values.
  *
- * @param pi - The extension API.
  * @param runtime - The runtime state to reset.
  */
-const resetRuntimeState = (pi: ExtensionAPI, runtime: RuntimeState): void => {
+const resetRuntimeState = (runtime: RuntimeState): void => {
   runtime.cleanup = INITIAL_STATE;
   runtime.gateConfig = Option.none();
   runtime.lastCleanCommitSHA = Option.none();
-  runtime.boomerangAnchorSet = false;
-  runtime.boomerangAvailable = pi.getAllTools().some((tool) => tool.name === "boomerang");
   runtime.evalPending = false;
   runtime.cycleComplete = false;
   runtime.cycleBaseSHA = Option.none();
   runtime.cycleActions = [];
   runtime.mutationDetected = true;
+  runtime.collapseAnchorId = Option.none();
 };
 
 /** Minimal entry shape for session restoration. */
@@ -100,19 +88,6 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
  * @param ctx - The extension context.
  */
 const notifyStartupWarnings = (runtime: RuntimeState, ctx: ExtensionContext): void => {
-  if (!runtime.boomerangAvailable) {
-    runtime.cleanup = CleanupState.AwaitingUserInput({
-      reason: AwaitingReason.BoomerangMissing(),
-    });
-    updateStatus(ctx, runtime.cleanup);
-    ctx.ui.notify(
-      "Boomerang extension required but not detected. Install boomerang and /reload to enable cleanup.",
-      "error",
-    );
-
-    return;
-  }
-
   if (Option.isNone(runtime.gateConfig)) {
     ctx.ui.notify("No quality gates configured. Use /gates to set up.", "warning");
   }
@@ -131,7 +106,7 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
   const runtime = createInitialRuntimeState();
 
   pi.on("session_start", (_event, ctx) => {
-    resetRuntimeState(pi, runtime);
+    resetRuntimeState(runtime);
     restoreFromEntries(runtime, ctx.sessionManager.getEntries());
     runtime.cleanup = transition(runtime.cleanup, TransitionEvent.SessionStarted());
     updateStatus(ctx, runtime.cleanup);
