@@ -1,13 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { Option } from "effect";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { Either, Option, Schema } from "effect";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import {
   captureCollapseAnchor,
+  checkConvergence,
   collapseIfNeeded,
+  dispatch,
   formatCycleActions,
+  runDirtyTreePhase,
+  runGatePhase,
 } from "../src/pipeline-phases.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
+import { CleanupState } from "../src/state-machine.js";
+import { AttemptCount, type CommitSHA, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // formatCycleActions
@@ -36,18 +42,39 @@ describe("formatCycleActions", () => {
 // captureCollapseAnchor
 // ---------------------------------------------------------------------------
 
+const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
+const sha2 = Either.getOrThrow(decodeCommitSHA("b".repeat(40)));
+const attempt = (n: number): typeof AttemptCount.Type => Schema.decodeUnknownSync(AttemptCount)(n);
+
 const makeCtx = (leafId: string | null = "entry-123") => {
+  const setStatus = vi.fn();
+  const themeFg = vi.fn((role: string, text: string) => `[${role}]${text}`);
+  const notify = vi.fn();
   const ctx = {
     sessionManager: { getLeafId: vi.fn(() => leafId) },
+    ui: { notify, setStatus, theme: { fg: themeFg } },
   } as unknown as ExtensionContext;
 
-  return ctx;
+  return { ctx, notify, setStatus };
+};
+
+const makePi = (overrides: Partial<Record<string, unknown>> = {}) => {
+  const exec = vi.fn(async () => ({ code: 0, stderr: "", stdout: "" }));
+  const appendEntry = vi.fn();
+  const sendUserMessage = vi.fn();
+
+  return {
+    appendEntry,
+    exec,
+    pi: { appendEntry, exec, sendUserMessage, ...overrides } as unknown as ExtensionAPI,
+    sendUserMessage,
+  };
 };
 
 describe("captureCollapseAnchor", () => {
   it("captures leaf ID when no anchor exists", () => {
     const runtime = createInitialRuntimeState();
-    const ctx = makeCtx("entry-abc");
+    const { ctx } = makeCtx("entry-abc");
     captureCollapseAnchor(runtime, ctx);
 
     expect(Option.isSome(runtime.collapseAnchorId)).toStrictEqual(true);
@@ -58,7 +85,7 @@ describe("captureCollapseAnchor", () => {
   it("does not overwrite existing anchor", () => {
     const runtime = createInitialRuntimeState();
     runtime.collapseAnchorId = Option.some("first-anchor");
-    const ctx = makeCtx("entry-xyz");
+    const { ctx } = makeCtx("entry-xyz");
     captureCollapseAnchor(runtime, ctx);
 
     const value = (runtime.collapseAnchorId as Option.Some<string>).value;
@@ -67,7 +94,7 @@ describe("captureCollapseAnchor", () => {
 
   it("does not set anchor when leaf ID is null", () => {
     const runtime = createInitialRuntimeState();
-    const ctx = makeCtx(null);
+    const { ctx } = makeCtx(null);
     captureCollapseAnchor(runtime, ctx);
 
     expect(Option.isNone(runtime.collapseAnchorId)).toStrictEqual(true);
@@ -120,5 +147,196 @@ describe("collapseIfNeeded", () => {
     await collapseIfNeeded(runtime);
 
     expect(Option.isNone(runtime.collapseAnchorId)).toStrictEqual(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// dispatch
+// ---------------------------------------------------------------------------
+
+describe("dispatch", () => {
+  it("transitions state and updates status", () => {
+    const runtime = createInitialRuntimeState();
+    const { ctx, setStatus } = makeCtx();
+
+    dispatch(runtime, ctx, { _tag: "GitDirty", porcelain: "M foo.ts" } as any);
+
+    expect(runtime.cleanup._tag).toStrictEqual("WaitingForTreeFix");
+    expect(setStatus).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// checkConvergence
+// ---------------------------------------------------------------------------
+
+describe("checkConvergence", () => {
+  it("returns false when not in WaitingForFactoring state", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    const { ctx } = makeCtx();
+
+    const result = await checkConvergence(pi, runtime, ctx);
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns false when HEAD is invalid", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha1,
+    });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "invalid\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await checkConvergence(pi, runtime, ctx);
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns false when HEAD differs from priorHeadSHA", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha1,
+    });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: sha2 + "\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await checkConvergence(pi, runtime, ctx);
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns true and persists SHA when HEAD matches priorHeadSHA", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha1,
+    });
+    const { appendEntry, pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: sha1 + "\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await checkConvergence(pi, runtime, ctx);
+    expect(result).toStrictEqual(true);
+    expect(appendEntry).toHaveBeenCalled();
+    expect(Option.isSome(runtime.lastCleanCommitSHA)).toStrictEqual(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runGatePhase
+// ---------------------------------------------------------------------------
+
+describe("runGatePhase", () => {
+  it("returns true and transitions when no gate config", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    const { ctx, notify } = makeCtx();
+
+    const result = await runGatePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(true);
+    expect(runtime.cleanup._tag).toStrictEqual("AwaitingUserInput");
+    expect(notify).toHaveBeenCalledWith(
+      "No quality gates configured. Use /gates to set up.",
+      "warning",
+    );
+  });
+
+  it("returns false when all gates pass", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "ok",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runGatePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns true and sends fix message when gate fails", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 1,
+      stderr: "error",
+      stdout: "FAIL",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runGatePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(true);
+    expect(runtime.cleanup._tag).toStrictEqual("WaitingForGateFix");
+    expect(sendUserMessage).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runDirtyTreePhase
+// ---------------------------------------------------------------------------
+
+describe("runDirtyTreePhase", () => {
+  it("returns false when tree is clean", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runDirtyTreePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(false);
+  });
+
+  it("returns true and sends commit message when dirty", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "M foo.ts\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runDirtyTreePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(true);
+    expect(runtime.cleanup._tag).toStrictEqual("WaitingForTreeFix");
+    expect(sendUserMessage).toHaveBeenCalled();
+  });
+
+  it("returns true when not a git repo", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 128,
+      stderr: "fatal: not a git repository",
+      stdout: "",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runDirtyTreePhase(pi, runtime, ctx);
+    expect(result).toStrictEqual(true);
   });
 });
