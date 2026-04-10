@@ -58,7 +58,10 @@ const handleGatesClear = (
  * @param ctx - The command context (for error notification).
  * @returns The validated GateConfig, or undefined on validation failure.
  */
-const parseGateInput = (input: string, ctx: ExtensionCommandContext): GateConfig | undefined => {
+export const parseGateInput = (
+  input: string,
+  ctx: ExtensionCommandContext,
+): GateConfig | undefined => {
   const lines = input.split("\n").filter((line) => line.trim().length > 0);
 
   if (lines.length === 0) {
