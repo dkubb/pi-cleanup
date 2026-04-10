@@ -45,7 +45,7 @@ describe("buildReviewMessage", () => {
   it("includes commit message validation instructions", () => {
     const msg = buildReviewMessage(sha1, sha2, 2);
     expect(msg).toContain("Commit messages");
-    expect(msg).toContain("conventional commit format");
+    expect(msg).toContain("git-commit skill");
   });
 
   it("includes overall structure review", () => {
