@@ -173,6 +173,13 @@ export type ExecFn = (
 export type AppendEntryFn = <T = unknown>(customType: string, data?: T) => void;
 
 // ---------------------------------------------------------------------------
+// Cleanup Phase
+// ---------------------------------------------------------------------------
+
+/** The actionable waiting states that can stall. */
+export type WaitingPhase = "WaitingForTreeFix" | "WaitingForGateFix" | "WaitingForFactoring";
+
+// ---------------------------------------------------------------------------
 // Compound Types
 // ---------------------------------------------------------------------------
 
@@ -203,8 +210,8 @@ export type AwaitingReason = Data.TaggedEnum<{
   readonly GatesUnconfigured: {};
   /** Exceeded maximum retry attempts. Unblock with `/cleanup resume`. */
   readonly Stalled: {
-    /** The state kind that was active when the stall occurred. */
-    readonly phase: string;
+    /** The waiting state that was active when the stall occurred. */
+    readonly phase: WaitingPhase;
     /** The attempt count when the stall occurred. */
     readonly attempts: AttemptCount;
   };

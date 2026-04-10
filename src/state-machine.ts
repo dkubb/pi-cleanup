@@ -19,6 +19,7 @@ import {
   AwaitingReason,
   type CommitSHA,
   type GateCommand,
+  type WaitingPhase,
   incrementAttempt,
 } from "./types.js";
 
@@ -172,7 +173,7 @@ const FIRST_ATTEMPT: AttemptCount = Schema.decodeUnknownSync(AttemptCountSchema)
 interface WaitingContext {
   readonly state: CleanupState;
   readonly event: TransitionEvent;
-  readonly phase: string;
+  readonly phase: WaitingPhase;
   readonly attempts: AttemptCount;
 }
 
