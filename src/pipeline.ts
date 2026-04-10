@@ -19,6 +19,7 @@ import {
   runGatePhase,
   withBoomerangAnchor,
 } from "./pipeline-phases.js";
+import { isGitRepo } from "./phases/dirty-tree.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
@@ -153,6 +154,42 @@ const captureCycleBase = async (pi: ExtensionAPI, runtime: RuntimeState): Promis
   }
 };
 
+/**
+ * Run the git-dependent phases: dirty tree check + atomicity.
+ *
+ * Skipped entirely when not inside a git repository, allowing
+ * gates and eval to run in non-git projects.
+ *
+ * @param pi - The extension API.
+ * @param runtime - The mutable runtime state.
+ * @param ctx - The extension context.
+ * @returns True if a phase needs agent action (caller should return).
+ */
+const runGitPhases = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+  ctx: ExtensionContext,
+): Promise<boolean> => {
+  if (!(await isGitRepo(pi.exec.bind(pi)))) {
+    return false;
+  }
+
+  await captureCycleBase(pi, runtime);
+
+  if (await runDirtyTreePhase(pi, runtime, ctx)) {
+    return true;
+  }
+
+  const gateConfig = Option.getOrThrow(runtime.gateConfig);
+  const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
+
+  if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
+    return true;
+  }
+
+  return false;
+};
+
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -181,21 +218,13 @@ export const handleAgentEnd = async (
     return;
   }
 
-  await captureCycleBase(pi, runtime);
-
+  // Gates always run (not git-dependent)
   if (await runGatePhase(pi, runtime, ctx)) {
     return;
   }
 
-  if (await runDirtyTreePhase(pi, runtime, ctx)) {
-    return;
-  }
-
-  // Gate config guaranteed Some by runGatePhase guard
-  const gateConfig = Option.getOrThrow(runtime.gateConfig);
-  const baseSHA = Option.orElse(runtime.cycleBaseSHA, () => runtime.lastCleanCommitSHA);
-
-  if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
+  // Git-dependent phases: dirty tree + atomicity (skipped outside a repo)
+  if (await runGitPhases(pi, runtime, ctx)) {
     return;
   }
 

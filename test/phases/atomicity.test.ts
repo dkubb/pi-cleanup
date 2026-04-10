@@ -148,20 +148,6 @@ describe("checkAtomicity — Indeterminate", () => {
 // ---------------------------------------------------------------------------
 
 describe("checkAtomicity — NoBase", () => {
-  it("returns NoBase when no lastCleanSHA and no default branches", async () => {
-    const exec: ExecFn = async (_cmd, args) => {
-      if (args[0] === "rev-parse") {
-        return { code: 0, stdout: sha1 + "\n", stderr: "" };
-      }
-      return { code: 1, stdout: "", stderr: "no branch" };
-    };
-    const result = await checkAtomicity(exec, Option.none());
-    expect(result._tag).toBe("NoBase");
-    if (result._tag === "NoBase") {
-      expect(result.headSHA).toBe(sha1);
-    }
-  });
-
   it("returns NoBase when merge-base equals HEAD (working on default branch)", async () => {
     const exec: ExecFn = async (_cmd, args) => {
       if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
@@ -172,6 +158,34 @@ describe("checkAtomicity — NoBase", () => {
     expect(result._tag).toBe("NoBase");
     if (result._tag === "NoBase") {
       expect(result.headSHA).toBe(sha1);
+    }
+  });
+});
+
+describe("checkAtomicity — empty tree fallback", () => {
+  it("uses empty tree SHA when no lastCleanSHA and no default branches", async () => {
+    const exec: ExecFn = async (_cmd, args) => {
+      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
+      if (args[0] === "merge-base") return { code: 1, stdout: "", stderr: "no branch" };
+      // rev-list with empty tree base → 1 commit
+      if (args[0] === "rev-list") return { code: 0, stdout: "1\n", stderr: "" };
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    const result = await checkAtomicity(exec, Option.none());
+    expect(result._tag).toBe("Atomic");
+  });
+
+  it("returns NeedsFactoring with empty tree base when multiple commits", async () => {
+    const exec: ExecFn = async (_cmd, args) => {
+      if (args[0] === "rev-parse") return { code: 0, stdout: sha1 + "\n", stderr: "" };
+      if (args[0] === "merge-base") return { code: 1, stdout: "", stderr: "no branch" };
+      if (args[0] === "rev-list") return { code: 0, stdout: "5\n", stderr: "" };
+      return { code: 1, stdout: "", stderr: "" };
+    };
+    const result = await checkAtomicity(exec, Option.none());
+    expect(result._tag).toBe("NeedsFactoring");
+    if (result._tag === "NeedsFactoring") {
+      expect(result.commitCount).toBe(5);
     }
   });
 });

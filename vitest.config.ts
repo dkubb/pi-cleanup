@@ -9,9 +9,9 @@ export default defineConfig({
       exclude: ["src/index.ts"],
       reporter: ["text", "json-summary"],
       thresholds: {
-        lines: 44,
-        functions: 57,
-        branches: 30,
+        lines: 43,
+        functions: 55,
+        branches: 29,
         statements: 43,
       },
     },

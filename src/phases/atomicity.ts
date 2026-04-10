@@ -19,6 +19,15 @@ import { type CommitSHA, decodeCommitSHA, type ExecFn, type GateCommand } from "
 const DEFAULT_BRANCHES = ["main", "master", "develop"] as const;
 
 /**
+ * The git empty tree SHA. Present in every repository, even before
+ * the first commit. Used as the ultimate fallback base so that
+ * `rev-list --count` covers the full history.
+ */
+const EMPTY_TREE_SHA: CommitSHA = Either.getOrThrow(
+  decodeCommitSHA("4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+);
+
+/**
  * Find the merge-base SHA between HEAD and a default branch.
  *
  * Tries `git merge-base HEAD {branch}` for each of main, master,
@@ -99,23 +108,32 @@ export type AtomicityResult = Data.TaggedEnum<{
 export const AtomicityResult = Data.taggedEnum<AtomicityResult>();
 
 /**
- * Resolve the base SHA from session state or default branch.
+ * Resolve the base SHA for the atomicity commit range.
  *
- * Uses the session-scoped lastCleanSHA when present, falling back
- * to the merge-base with a default branch.
+ * Priority: lastCleanSHA → merge-base with default branch → empty tree.
+ * The empty tree fallback ensures we always have a base, even in a
+ * freshly-initialized repo with no default branch.
  *
  * @param exec - The injected exec function.
  * @param lastCleanSHA - The last known clean commit SHA, or None.
- * @returns The resolved base SHA option.
+ * @returns The resolved base SHA (always Some due to empty tree fallback).
  */
-const resolveBaseSHA = (
+const resolveBaseSHA = async (
   exec: ExecFn,
   lastCleanSHA: Option.Option<CommitSHA>,
-): Promise<Option.Option<CommitSHA>> =>
-  Option.match(lastCleanSHA, {
-    onNone: (): Promise<Option.Option<CommitSHA>> => getDefaultBaseSHA(exec),
-    onSome: (sha): Promise<Option.Option<CommitSHA>> => Promise.resolve(Option.some(sha)),
-  });
+): Promise<Option.Option<CommitSHA>> => {
+  if (Option.isSome(lastCleanSHA)) {
+    return lastCleanSHA;
+  }
+
+  const mergeBase = await getDefaultBaseSHA(exec);
+
+  if (Option.isSome(mergeBase)) {
+    return mergeBase;
+  }
+
+  return Option.some(EMPTY_TREE_SHA);
+};
 
 /**
  * Classify the commit count between base and HEAD.

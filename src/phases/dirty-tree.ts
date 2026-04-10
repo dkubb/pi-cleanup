@@ -35,6 +35,18 @@ export type GitStatusResult = Data.TaggedEnum<{
 export const GitStatusResult = Data.taggedEnum<GitStatusResult>();
 
 /**
+ * Check whether the current directory is inside a git repository.
+ *
+ * @param exec - The injected exec function (pi.exec signature).
+ * @returns True if git commands will work in this directory.
+ */
+export const isGitRepo = async (exec: ExecFn): Promise<boolean> => {
+  const result = await exec("git", ["rev-parse", "--git-dir"]);
+
+  return result.code === 0;
+};
+
+/**
  * Check the working tree for uncommitted changes.
  *
  * Runs `git status --porcelain=v1` via the injected exec function.
