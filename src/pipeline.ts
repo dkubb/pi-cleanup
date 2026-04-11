@@ -14,7 +14,6 @@ import { Match, Option, Schema } from "effect";
 import {
   captureCollapseAnchor,
   checkConvergence,
-  collapseIfNeeded,
   runAtomicityPhase,
   runDirtyTreePhase,
   runGatePhase,
@@ -136,7 +135,7 @@ const runEvalOrComplete = async (
   runtime.cycleComplete = true;
   runtime.mutationDetected = false;
   runtime.cycleActions.push("Verified task completion");
-  await collapseIfNeeded(runtime);
+  pi.sendUserMessage("/cleanup collapse", { deliverAs: "followUp" });
 };
 
 /**

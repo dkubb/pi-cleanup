@@ -7,6 +7,8 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
+import { collapseIfNeeded } from "./pipeline-phases.js";
+
 import { persistGateConfig, persistGatesClear } from "./persistence.js";
 import type { RuntimeState } from "./runtime.js";
 import { TransitionEvent, transition } from "./state-machine.js";
@@ -179,6 +181,28 @@ const handleCleanupStatus = (runtime: RuntimeState, ctx: ExtensionCommandContext
   );
 };
 
+/**
+ * Handle `/cleanup collapse`.
+ *
+ * Performs the navigateTree collapse using the command context.
+ * Called via sendUserMessage("/cleanup collapse") from the pipeline.
+ *
+ * @param runtime - The runtime state.
+ * @param ctx - The command context with navigateTree.
+ */
+const handleCleanupCollapse = async (
+  runtime: RuntimeState,
+  ctx: ExtensionCommandContext,
+): Promise<void> => {
+  runtime.commandCtx = Option.some({ navigateTree: ctx.navigateTree.bind(ctx) });
+
+  const collapsed = await collapseIfNeeded(runtime);
+
+  if (collapsed) {
+    ctx.ui.notify("Cleanup context collapsed.", "info");
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Command Registration
 // ---------------------------------------------------------------------------
@@ -259,6 +283,12 @@ export const registerCleanupCommand = (pi: ExtensionAPI, runtime: RuntimeState):
           { ctx, event: TransitionEvent.UserResumed(), runtime },
           "Cleanup resumed.",
         );
+
+        return;
+      }
+
+      if (trimmed === "collapse") {
+        await handleCleanupCollapse(runtime, ctx);
 
         return;
       }
