@@ -55,15 +55,19 @@ describe("restoreGateConfig — valid config", () => {
     expect(value.description).toStrictEqual("Restored from session");
   });
 
-  it("filters out invalid commands from the array", () => {
+  it("returns None when any command in the array is invalid (fail closed)", () => {
     const data = { commands: ["npm test", "", "  ", "npm run lint"], description: "test" };
     const result = restoreGateConfig(data);
-    expect(Option.isSome(result)).toStrictEqual(true);
-    const value = (result as Option.Some<typeof result.value>).value;
-    expect(value.commands).toStrictEqual(["npm test", "npm run lint"]);
+    expect(Option.isNone(result)).toStrictEqual(true);
   });
 
-  it("returns None when all commands are invalid and array is empty after filtering", () => {
+  it("returns None when a single invalid command appears among valid ones", () => {
+    const data = { commands: ["npm test", "npm run lint", ""], description: "test" };
+    const result = restoreGateConfig(data);
+    expect(Option.isNone(result)).toStrictEqual(true);
+  });
+
+  it("returns None when all commands are invalid", () => {
     const data = { commands: ["", "  "], description: "test" };
     const result = restoreGateConfig(data);
     expect(Option.isNone(result)).toStrictEqual(true);
@@ -136,12 +140,10 @@ describe("restoreGateConfig — invalid / edge-case data", () => {
     expect(Option.isNone(restoreGateConfig({ commands: [42, null, true] }))).toStrictEqual(true);
   });
 
-  it("skips non-string values in commands array", () => {
+  it("returns None when commands array contains non-string values alongside strings", () => {
     const data = { commands: [42, "npm test", null, "npm run lint"], description: "test" };
     const result = restoreGateConfig(data);
-    expect(Option.isSome(result)).toStrictEqual(true);
-    const value = (result as Option.Some<typeof result.value>).value;
-    expect(value.commands).toStrictEqual(["npm test", "npm run lint"]);
+    expect(Option.isNone(result)).toStrictEqual(true);
   });
 });
 

@@ -24,21 +24,28 @@ import {
 /**
  * Parse validated gate commands from raw entry data.
  *
+ * Fails closed: if any element fails validation, returns None so
+ * the caller treats the whole config as unusable. Silently keeping
+ * the valid subset would weaken the gate set without any signal to
+ * the user.
+ *
  * @param rawCommands - The raw commands array from persisted data.
- * @returns An array of validated GateCommand values.
+ * @returns All validated commands, or None if any element is invalid.
  */
-const parseGateCommands = (rawCommands: unknown[]): GateCommand[] => {
+const parseGateCommands = (rawCommands: unknown[]): Option.Option<GateCommand[]> => {
   const commands: GateCommand[] = [];
 
   for (const cmd of rawCommands) {
     const decoded = decodeGateCommand(cmd);
 
-    if (Either.isRight(decoded)) {
-      commands.push(decoded.right);
+    if (Either.isLeft(decoded)) {
+      return Option.none();
     }
+
+    commands.push(decoded.right);
   }
 
-  return commands;
+  return Option.some(commands);
 };
 
 /**
@@ -78,8 +85,13 @@ export const restoreGateConfig = (data: unknown): Option.Option<GateConfig> => {
     return Option.none();
   }
 
-  const commands = parseGateCommands(rawCommands);
-  const [first, ...rest] = commands;
+  const parsed = parseGateCommands(rawCommands);
+
+  if (Option.isNone(parsed)) {
+    return Option.none();
+  }
+
+  const [first, ...rest] = parsed.value;
 
   if (first === undefined) {
     return Option.none();
