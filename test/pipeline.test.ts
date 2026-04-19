@@ -3,12 +3,12 @@ import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
-import { handleAgentEnd, recordPriorCycleCompletion } from "../src/pipeline.js";
+import { getAttempts, handleAgentEnd, recordPriorCycleCompletion } from "../src/pipeline.js";
 import { isCycleInProgress } from "../src/pipeline-skip.js";
 import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
-import { AttemptCount, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
+import { AttemptCount, AwaitingReason, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
 import { Schema } from "effect";
 
 const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
@@ -403,6 +403,44 @@ describe("handleAgentEnd", () => {
     await handleAgentEnd(pi, runtime, ctx);
 
     expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getAttempts — defensive exhaustive arms
+// ---------------------------------------------------------------------------
+
+describe("getAttempts", () => {
+  it("returns 0 for Idle", () => {
+    expect(Number(getAttempts(CleanupState.Idle()))).toStrictEqual(0);
+  });
+
+  it("returns the stored attempts for WaitingForTreeFix", () => {
+    const s = CleanupState.WaitingForTreeFix({ attempts: attempt(3) });
+    expect(Number(getAttempts(s))).toStrictEqual(3);
+  });
+
+  it("returns the stored attempts for WaitingForGateFix", () => {
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    const s = CleanupState.WaitingForGateFix({ attempts: attempt(2), failedGate: cmd });
+    expect(Number(getAttempts(s))).toStrictEqual(2);
+  });
+
+  it("returns the stored attempts for WaitingForFactoring", () => {
+    const s = CleanupState.WaitingForFactoring({ attempts: attempt(4), priorHeadSHA: sha1 });
+    expect(Number(getAttempts(s))).toStrictEqual(4);
+  });
+
+  it("returns 0 for AwaitingUserInput (defensive; unreachable via handler)", () => {
+    // The handler gates on isActionable, so AwaitingUserInput never
+    // Reaches getAttempts in production. The arm exists to satisfy
+    // Match.exhaustive; this test keeps absolute coverage honest.
+    const s = CleanupState.AwaitingUserInput({ reason: AwaitingReason.GatesUnconfigured() });
+    expect(Number(getAttempts(s))).toStrictEqual(0);
+  });
+
+  it("returns 0 for Disabled (defensive; unreachable via handler)", () => {
+    expect(Number(getAttempts(CleanupState.Disabled()))).toStrictEqual(0);
   });
 });
 

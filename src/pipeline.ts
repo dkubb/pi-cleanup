@@ -66,15 +66,16 @@ const EVAL_MESSAGE = [
  * @param state - The current cleanup state.
  * @returns The attempt count for the current state.
  */
-const getAttempts = (state: CleanupState): AttemptCount =>
+export const getAttempts = (state: CleanupState): AttemptCount =>
   Match.value(state).pipe(
     Match.tag("Idle", () => ZERO_ATTEMPTS),
     Match.tag("WaitingForTreeFix", (s) => s.attempts),
     Match.tag("WaitingForGateFix", (s) => s.attempts),
     Match.tag("WaitingForFactoring", (s) => s.attempts),
-    // Non-actionable states: unreachable here (handleAgentEnd gates
-    // On isActionable before calling getAttempts) but enumerated so a
-    // New CleanupState variant produces a compile error.
+    // Non-actionable states: unreachable here in production (the
+    // Handler gates on isActionable before calling getAttempts) but
+    // Enumerated so a new CleanupState variant produces a compile
+    // Error. Exported so tests can exercise these arms directly.
     Match.tag("AwaitingUserInput", () => ZERO_ATTEMPTS),
     Match.tag("Disabled", () => ZERO_ATTEMPTS),
     Match.exhaustive,
