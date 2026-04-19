@@ -111,7 +111,7 @@ export const runGatePhase = async (
     }),
     Match.tag("AllPassed", (): false => {
       if (runtime.cleanup._tag === "WaitingForGateFix") {
-        runtime.cycleActions.push(`Fixed failing gate: \`${String(runtime.cleanup.failedGate)}\``);
+        dispatch(runtime, ctx, TransitionEvent.GatesPassed());
       }
       return false;
     }),
@@ -152,7 +152,7 @@ export const runDirtyTreePhase = async (
     }),
     Match.tag("Clean", (): false => {
       if (runtime.cleanup._tag === "WaitingForTreeFix") {
-        runtime.cycleActions.push("Committed uncommitted changes");
+        dispatch(runtime, ctx, TransitionEvent.GitClean());
       }
       return false;
     }),
@@ -208,9 +208,6 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
       return false;
     }),
     Match.tag("Atomic", (r): true => {
-      if (runtime.cleanup._tag === "WaitingForFactoring") {
-        runtime.cycleActions.push("Factored commits into atomic units");
-      }
       handleAtomicitySuccess({
         ctx,
         event: TransitionEvent.Atomic(r),

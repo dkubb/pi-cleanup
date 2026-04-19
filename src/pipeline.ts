@@ -9,7 +9,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Match, Option, Schema } from "effect";
+import { Either, Match, Option, Schema } from "effect";
 
 import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import {
@@ -18,7 +18,9 @@ import {
   runDirtyTreePhase,
   runGatePhase,
 } from "./pipeline-phases.js";
-import { isGitRepo } from "./phases/dirty-tree.js";
+import { checkAtomicity } from "./phases/atomicity.js";
+import { checkGitStatus, isGitRepo } from "./phases/dirty-tree.js";
+import { runGates } from "./phases/gates.js";
 import { isGitUnchanged, resolveBaseSHA } from "./phases/git-status.js";
 import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
 import type { RuntimeState } from "./runtime.js";
@@ -90,6 +92,90 @@ const shouldSkip = (runtime: RuntimeState): boolean =>
   (!runtime.mutationDetected && !isCycleInProgress(runtime));
 
 /**
+ * Record any completion from the prior cycle based on the entry state.
+ *
+ * Each `WaitingFor*` state is a request the agent was asked to fulfil
+ * last cycle. By observing the relevant git/gate state at this cycle's
+ * entry, we can tell whether the request was honored and push the
+ * corresponding `cycleActions` entry. This centralization is necessary
+ * because a phase further down the pipeline may dispatch a fresh
+ * failure and short-circuit the orchestrator before its own success
+ * branch ever runs.
+ *
+ * @param pi - The extension API for exec.
+ * @param runtime - The mutable runtime state.
+ */
+const recordTreeFixIfCommitted = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
+  const status = await checkGitStatus(pi.exec.bind(pi));
+
+  if (status._tag === "Clean") {
+    runtime.cycleActions.push("Committed uncommitted changes");
+  }
+};
+
+const recordGateFixIfPassing = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+  failedGate: string,
+): Promise<void> => {
+  if (Option.isNone(runtime.gateConfig)) {
+    return;
+  }
+
+  const stillTracked = runtime.gateConfig.value.commands.some((cmd) => String(cmd) === failedGate);
+
+  if (!stillTracked) {
+    return;
+  }
+
+  const gates = await runGates(pi.exec.bind(pi), runtime.gateConfig.value);
+
+  if (gates._tag === "AllPassed") {
+    runtime.cycleActions.push(`Fixed failing gate: \`${failedGate}\``);
+  }
+};
+
+const recordFactoringIfComplete = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+  priorHeadSHA: string,
+): Promise<void> => {
+  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
+  const headEither = decodeCommitSHA(headResult.stdout.trim());
+
+  if (Either.isLeft(headEither) || String(headEither.right) === priorHeadSHA) {
+    return;
+  }
+
+  const atomicity = await checkAtomicity(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
+
+  if (atomicity._tag === "Atomic" || atomicity._tag === "NoBase") {
+    runtime.cycleActions.push("Factored commits into atomic units");
+  }
+};
+
+export const recordPriorCycleCompletion = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+): Promise<void> => {
+  const entry = runtime.cleanup;
+
+  if (entry._tag === "WaitingForTreeFix") {
+    await recordTreeFixIfCommitted(pi, runtime);
+    return;
+  }
+
+  if (entry._tag === "WaitingForGateFix") {
+    await recordGateFixIfPassing(pi, runtime, String(entry.failedGate));
+    return;
+  }
+
+  if (entry._tag === "WaitingForFactoring") {
+    await recordFactoringIfComplete(pi, runtime, String(entry.priorHeadSHA));
+  }
+};
+
+/**
  * Check whether the attempt limit has been exceeded.
  *
  * @param runtime - The mutable runtime state.
@@ -109,6 +195,29 @@ const checkMaxAttempts = (runtime: RuntimeState, ctx: ExtensionContext): boolean
   );
 
   return true;
+};
+
+/**
+ * Record prior-cycle completion, then stall on max attempts only if
+ * the agent did not make observable progress. If progress was
+ * recorded, the subsequent phase run will transition state out of
+ * the waiting variant and reset the counter.
+ *
+ * @param pi - The extension API for exec.
+ * @param runtime - The mutable runtime state.
+ * @param ctx - The extension context for stall notifications.
+ * @returns True if the handler should return early (stalled).
+ */
+const recordThenCheckMaxAttempts = async (
+  pi: ExtensionAPI,
+  runtime: RuntimeState,
+  ctx: ExtensionContext,
+): Promise<boolean> => {
+  const actionsBefore = runtime.cycleActions.length;
+  await recordPriorCycleCompletion(pi, runtime);
+  const madeProgress = runtime.cycleActions.length > actionsBefore;
+
+  return !madeProgress && checkMaxAttempts(runtime, ctx);
 };
 
 /**
@@ -195,16 +304,21 @@ export const handleAgentEnd = async (
   runtime: RuntimeState,
   ctx: ExtensionContext,
 ): Promise<void> => {
-  if (shouldSkip(runtime) || checkMaxAttempts(runtime, ctx)) {
+  if (shouldSkip(runtime)) {
     return;
   }
 
   if (
+    runtime.cleanup._tag === "Idle" &&
     !isCycleInProgress(runtime) &&
     (await isGitUnchanged(pi.exec.bind(pi), runtime.lastCleanCommitSHA))
   ) {
     runtime.mutationDetected = false;
 
+    return;
+  }
+
+  if (await recordThenCheckMaxAttempts(pi, runtime, ctx)) {
     return;
   }
 

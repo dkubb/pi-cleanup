@@ -19,8 +19,8 @@
   },
   "rules": {
     // ── Size limits relaxed from defaults to accommodate cohesive modules ──
-    "eslint/max-lines": ["error", { "max": 500 }],
-    "import/max-dependencies": ["error", { "max": 15 }],
+    "eslint/max-lines": ["error", { "max": 400 }],
+    "import/max-dependencies": ["error", { "max": 13 }],
 
     // ── Inapplicable: No React/Vue/JSX/Jest in this project ──
 

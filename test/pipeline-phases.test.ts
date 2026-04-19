@@ -310,7 +310,7 @@ describe("runGatePhase", () => {
     expect(runtime.cycleActions).toStrictEqual([]);
   });
 
-  it("records a cycle action when a previously failing gate now passes", async () => {
+  it("transitions out of WaitingForGateFix when gates now pass", async () => {
     const runtime = createInitialRuntimeState();
     const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
     runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
@@ -328,7 +328,31 @@ describe("runGatePhase", () => {
 
     await runGatePhase(pi, runtime, ctx);
 
-    expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
+    expect(runtime.cleanup._tag).toStrictEqual("Idle");
+  });
+
+  it("preserves WaitingForTreeFix attempts when gates pass during a tree-fix cycle", async () => {
+    // Regression: dispatching GatesPassed unconditionally from any state
+    // would reset WaitingForTreeFix(attempts=4) → Idle → (tree still dirty)
+    // → WaitingForTreeFix(attempts=1), defeating max-attempt stalling.
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.cleanup = CleanupState.WaitingForTreeFix({ attempts: attempt(4) });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "ok",
+    });
+    const { ctx } = makeCtx();
+
+    await runGatePhase(pi, runtime, ctx);
+
+    expect(runtime.cleanup._tag).toStrictEqual("WaitingForTreeFix");
+    if (runtime.cleanup._tag === "WaitingForTreeFix") {
+      expect(Number(runtime.cleanup.attempts)).toStrictEqual(4);
+    }
   });
 });
 
@@ -396,7 +420,7 @@ describe("runDirtyTreePhase", () => {
     expect(runtime.cycleActions).toStrictEqual([]);
   });
 
-  it("records a cycle action when the tree was previously dirty and is now clean", async () => {
+  it("transitions out of WaitingForTreeFix when tree is now clean", async () => {
     const runtime = createInitialRuntimeState();
     runtime.cleanup = CleanupState.WaitingForTreeFix({ attempts: attempt(1) });
     const { pi } = makePi();
@@ -409,7 +433,30 @@ describe("runDirtyTreePhase", () => {
 
     await runDirtyTreePhase(pi, runtime, ctx);
 
-    expect(runtime.cycleActions).toStrictEqual(["Committed uncommitted changes"]);
+    expect(runtime.cleanup._tag).toStrictEqual("Idle");
+  });
+
+  it("preserves WaitingForGateFix attempts when tree is clean during a gate-fix cycle", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({
+      attempts: attempt(3),
+      failedGate: cmd,
+    });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "",
+    });
+    const { ctx } = makeCtx();
+
+    await runDirtyTreePhase(pi, runtime, ctx);
+
+    expect(runtime.cleanup._tag).toStrictEqual("WaitingForGateFix");
+    if (runtime.cleanup._tag === "WaitingForGateFix") {
+      expect(Number(runtime.cleanup.attempts)).toStrictEqual(3);
+    }
   });
 });
 
@@ -436,21 +483,6 @@ describe("runAtomicityPhase — cycleActions timing", () => {
     await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
 
     expect(runtime.cycleActions).toStrictEqual([]);
-  });
-
-  it("records a cycle action when previously factoring and commits are now atomic", async () => {
-    const runtime = createInitialRuntimeState();
-    runtime.cleanup = CleanupState.WaitingForFactoring({
-      attempts: attempt(1),
-      priorHeadSHA: sha2,
-    });
-    const { pi } = makePi();
-    primeAtomicityExec(pi, "1");
-    const { ctx } = makeCtx();
-
-    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
-
-    expect(runtime.cycleActions).toStrictEqual(["Factored commits into atomic units"]);
   });
 
   it("does not record a cycle action when first-cycle commits are already atomic", async () => {

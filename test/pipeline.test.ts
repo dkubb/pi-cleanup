@@ -3,10 +3,12 @@ import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
-import { isCycleInProgress } from "../src/pipeline.js";
+import { handleAgentEnd, isCycleInProgress, recordPriorCycleCompletion } from "../src/pipeline.js";
 import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
-import { decodeCommitSHA } from "../src/types.js";
+import { CleanupState } from "../src/state-machine.js";
+import { AttemptCount, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
+import { Schema } from "effect";
 
 const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
 const sha2 = Either.getOrThrow(decodeCommitSHA("b".repeat(40)));
@@ -157,6 +159,249 @@ describe("runReviewIfNeeded", () => {
 
     runReviewIfNeeded(input);
     expect(runtime.cycleActions).toStrictEqual(["Delegated code review to subagent"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// recordPriorCycleCompletion
+// ---------------------------------------------------------------------------
+
+const attempt = (n: number): typeof AttemptCount.Type => Schema.decodeUnknownSync(AttemptCount)(n);
+
+describe("recordPriorCycleCompletion", () => {
+  it("records nothing when entry state is Idle", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records 'Committed uncommitted changes' when WaitingForTreeFix and tree is now clean", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForTreeFix({ attempts: attempt(1) });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, stderr: "", stdout: "" });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual(["Committed uncommitted changes"]);
+  });
+
+  it("records nothing when WaitingForTreeFix but tree is still dirty", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForTreeFix({ attempts: attempt(1) });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "M foo.ts\n",
+    });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records 'Fixed failing gate' when WaitingForGateFix and gates now pass", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(1), failedGate: cmd });
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({ code: 0, stderr: "", stdout: "ok" });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
+  });
+
+  it("records nothing when WaitingForGateFix but gates still fail", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(1), failedGate: cmd });
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 1,
+      stderr: "err",
+      stdout: "FAIL",
+    });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records nothing when WaitingForGateFix but gateConfig is None", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(1), failedGate: cmd });
+    const { pi } = makePi();
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records nothing when the failing gate was reconfigured out of the gate list", async () => {
+    const runtime = createInitialRuntimeState();
+    const oldCmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    const newCmd = Either.getOrThrow(decodeGateCommand("npm run lint"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({
+      attempts: attempt(1),
+      failedGate: oldCmd,
+    });
+    runtime.gateConfig = Option.some({ commands: [newCmd], description: "new" });
+    const { pi } = makePi();
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+    expect(pi.exec).not.toHaveBeenCalled();
+  });
+
+  it("records 'Factored commits' when WaitingForFactoring, HEAD moved, and range is now atomic", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha2,
+    });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    const { pi } = makePi();
+    // HEAD query (for our predicate), then checkAtomicity's HEAD query,
+    // then its rev-list --count which returns "1" (atomic).
+    (pi.exec as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "1\n" });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual(["Factored commits into atomic units"]);
+  });
+
+  it("records nothing when WaitingForFactoring, HEAD moved, but range still needs more factoring", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha2,
+    });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    const { pi } = makePi();
+    // HEAD query, then checkAtomicity HEAD, then rev-list --count "3" (still non-atomic).
+    (pi.exec as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "3\n" });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records nothing when WaitingForFactoring but HEAD is unchanged (convergence)", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha1,
+    });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: String(sha1) + "\n",
+    });
+
+    await recordPriorCycleCompletion(pi, runtime);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleAgentEnd — max-attempts + prior-completion ordering
+// ---------------------------------------------------------------------------
+
+describe("handleAgentEnd", () => {
+  it("does not stall on max attempts when the agent just succeeded", async () => {
+    // If the 5th allowed attempt actually fixed the issue,
+    // recordPriorCycleCompletion observes success and adds a cycleAction.
+    // The handler must not then stall to AwaitingUserInput based on the
+    // stale attempt counter — it should let the phase pipeline transition
+    // state back to Idle.
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(5), failedGate: cmd });
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "ok",
+    });
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
+    expect(runtime.cleanup._tag).not.toStrictEqual("AwaitingUserInput");
+  });
+
+  it("stalls on max attempts when the agent is still stuck (no progress observed)", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(5), failedGate: cmd });
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 1,
+      stderr: "err",
+      stdout: "FAIL",
+    });
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+    expect(runtime.cleanup._tag).toStrictEqual("AwaitingUserInput");
+  });
+
+  it("bails out without recording when state is not actionable", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.Disabled();
+    const { pi } = makePi();
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+    expect(pi.exec).not.toHaveBeenCalled();
+  });
+
+  it("does not short-circuit in WaitingForGateFix when git state is unchanged (flaky gate now passing)", async () => {
+    // Regression: isGitUnchanged would see HEAD==lastClean + clean tree and
+    // bail, leaving the cycle stuck in WaitingForGateFix even though the
+    // gate now passes on this run.
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.cleanup = CleanupState.WaitingForGateFix({ attempts: attempt(1), failedGate: cmd });
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha1);
+    const { pi } = makePi();
+    // recordGateFixIfPassing only: runs gates once (HEAD probe skipped since
+    // we now gate the short-circuit on Idle).
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "ok",
+    });
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
   });
 });
 
