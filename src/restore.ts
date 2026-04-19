@@ -4,10 +4,15 @@
  * Parses persisted session entries back into typed runtime state.
  * This is the "parse" boundary where raw JSON becomes typed data.
  *
+ * Every failure mode is represented as its own variant in a tagged
+ * `RestoreError` union so callers can distinguish "absent" from
+ * "corrupt" at the type level — per the state-space-minimization
+ * skill, logs are a complement to types, not a substitute for them.
+ *
  * @module
  */
 
-import { Either, Option } from "effect";
+import { Data, Either } from "effect";
 
 import {
   type CommitSHA,
@@ -18,42 +23,77 @@ import {
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
+// Error types
+// ---------------------------------------------------------------------------
+
+/**
+ * Reasons `restoreGateConfig` may fail to produce a GateConfig.
+ *
+ * Each variant names a distinct real-world outcome at the
+ * persistence boundary. Callers can choose to log, ignore, or
+ * escalate per-variant rather than treating every failure as the
+ * same silent "absent".
+ */
+export type GateConfigRestoreError = Data.TaggedEnum<{
+  /** Data is not a record (e.g. null, string, number, array). */
+  readonly NotARecord: {};
+  /** Tombstone entry — gates were explicitly cleared. */
+  readonly Tombstone: {};
+  /** Record present but `commands` is absent or not an array. */
+  readonly CommandsNotArray: {};
+  /** Commands array present but empty after parsing. */
+  readonly CommandsEmpty: {};
+  /** Commands array had an element that failed GateCommand validation. */
+  readonly InvalidCommand: { readonly raw: unknown };
+}>;
+
+/** Constructor namespace for {@link GateConfigRestoreError} variants. */
+export const GateConfigRestoreError = Data.taggedEnum<GateConfigRestoreError>();
+
+/**
+ * Reasons `restoreCommitSHA` may fail to produce a CommitSHA.
+ */
+export type CommitSHARestoreError = Data.TaggedEnum<{
+  /** Data is not a record, or `sha` field is missing / not a string. */
+  readonly NotAString: {};
+  /** `sha` field present but failed CommitSHA schema validation. */
+  readonly InvalidSHA: { readonly raw: string };
+}>;
+
+/** Constructor namespace for {@link CommitSHARestoreError} variants. */
+export const CommitSHARestoreError = Data.taggedEnum<CommitSHARestoreError>();
+
+// ---------------------------------------------------------------------------
 // Gate Config Restoration
 // ---------------------------------------------------------------------------
 
 /**
- * Parse validated gate commands from raw entry data.
+ * Parse validated gate commands from a raw commands array.
  *
- * Fails closed: if any element fails validation, returns None so
- * the caller treats the whole config as unusable. Silently keeping
- * the valid subset would weaken the gate set without any signal to
- * the user.
- *
- * Logs a warning on the first invalid element so a corrupted
- * persisted entry is distinguishable from an absent one in
- * extension logs — the None return alone cannot tell the caller
- * which case occurred.
+ * Fails closed on the first invalid element so a corrupted entry
+ * does not weaken the gate set to a strict subset of what the user
+ * configured.
  *
  * @param rawCommands - The raw commands array from persisted data.
- * @returns All validated commands, or None if any element is invalid.
+ * @returns Right with all validated commands, or Left with the first
+ *   invalid raw value encountered.
  */
-const parseGateCommands = (rawCommands: unknown[]): Option.Option<GateCommand[]> => {
+const parseGateCommands = (
+  rawCommands: unknown[],
+): Either.Either<GateCommand[], GateConfigRestoreError> => {
   const commands: GateCommand[] = [];
 
   for (const cmd of rawCommands) {
     const decoded = decodeGateCommand(cmd);
 
     if (Either.isLeft(decoded)) {
-      console.warn(
-        `[pi-cleanup] parseGateCommands: invalid command in persisted gate entry; discarding whole entry (value=${JSON.stringify(cmd)?.slice(0, 80) ?? "undefined"})`,
-      );
-      return Option.none();
+      return Either.left(GateConfigRestoreError.InvalidCommand({ raw: cmd }));
     }
 
     commands.push(decoded.right);
   }
 
-  return Option.some(commands);
+  return Either.right(commands);
 };
 
 /**
@@ -71,47 +111,68 @@ const resolveDescription = (value: unknown): string => {
 };
 
 /**
- * Restore gate config from a custom entry's data.
+ * Check that `data` is a non-null, non-array plain object.
  *
- * Handles both config entries and tombstone (cleared) entries.
- * Invalid or missing data produces None (graceful degradation).
- *
- * @param data - The raw entry data from the session.
- * @returns The restored GateConfig, or None.
+ * @param data - The raw entry data to validate.
+ * @returns Right(record) if data is a record; Left(NotARecord) otherwise.
  */
+const asRecord = (
+  data: unknown,
+): Either.Either<Record<string, unknown>, GateConfigRestoreError> => {
+  if (data === null || typeof data !== "object" || Array.isArray(data)) {
+    return Either.left(GateConfigRestoreError.NotARecord());
+  }
+  return Either.right(data as Record<string, unknown>);
+};
 
-export const restoreGateConfig = (data: unknown): Option.Option<GateConfig> => {
-  const record = data as Record<string, unknown> | undefined;
-
-  if (record?.["cleared"] === true) {
-    return Option.none();
+/**
+ * Extract and validate the `commands` array from a record.
+ *
+ * @param record - The persisted entry as a plain object.
+ * @returns Right(rawCommands) if present and an array; Left otherwise.
+ */
+const asCommandsArray = (
+  record: Record<string, unknown>,
+): Either.Either<unknown[], GateConfigRestoreError> => {
+  if (record["cleared"] === true) {
+    return Either.left(GateConfigRestoreError.Tombstone());
   }
 
-  const rawCommands = record?.["commands"];
+  const rawCommands = record["commands"];
 
   if (!Array.isArray(rawCommands)) {
-    return Option.none();
+    return Either.left(GateConfigRestoreError.CommandsNotArray());
   }
 
-  const parsed = parseGateCommands(rawCommands);
-
-  if (Option.isNone(parsed)) {
-    return Option.none();
-  }
-
-  const [first, ...rest] = parsed.value;
-
-  if (first === undefined) {
-    return Option.none();
-  }
-
-  const description = resolveDescription(record?.["description"]);
-
-  return Option.some({
-    commands: [first, ...rest],
-    description,
-  });
+  return Either.right(rawCommands);
 };
+
+/**
+ * Restore gate config from a custom entry's data.
+ *
+ * @param data - The raw entry data from the session.
+ * @returns Right(GateConfig) on success; Left(GateConfigRestoreError)
+ *   naming the specific failure mode.
+ */
+export const restoreGateConfig = (
+  data: unknown,
+): Either.Either<GateConfig, GateConfigRestoreError> =>
+  Either.flatMap(asRecord(data), (record) =>
+    Either.flatMap(asCommandsArray(record), (rawCommands) =>
+      Either.flatMap(parseGateCommands(rawCommands), (commands) => {
+        const [first, ...rest] = commands;
+
+        if (first === undefined) {
+          return Either.left(GateConfigRestoreError.CommandsEmpty());
+        }
+
+        return Either.right({
+          commands: [first, ...rest],
+          description: resolveDescription(record["description"]),
+        });
+      }),
+    ),
+  );
 
 // ---------------------------------------------------------------------------
 // Commit SHA Restoration
@@ -120,30 +181,25 @@ export const restoreGateConfig = (data: unknown): Option.Option<GateConfig> => {
 /**
  * Restore a clean commit SHA from a custom entry's data.
  *
- * Returns None for all failure causes — absent record, non-string
- * `sha` field, string that fails to decode as a CommitSHA — but
- * logs a warning on the last case so a corrupted persisted entry
- * is distinguishable from a simply-absent one in extension logs.
- *
  * @param data - The raw entry data from the session.
- * @returns The restored CommitSHA, or None.
+ * @returns Right(CommitSHA) on success; Left(CommitSHARestoreError)
+ *   naming the specific failure mode.
  */
-export const restoreCommitSHA = (data: unknown): Option.Option<CommitSHA> => {
+export const restoreCommitSHA = (
+  data: unknown,
+): Either.Either<CommitSHA, CommitSHARestoreError> => {
   const record = data as Record<string, unknown> | undefined;
   const sha = record?.["sha"];
 
   if (typeof sha !== "string") {
-    return Option.none();
+    return Either.left(CommitSHARestoreError.NotAString());
   }
 
   const decoded = decodeCommitSHA(sha);
 
   if (Either.isLeft(decoded)) {
-    console.warn(
-      `[pi-cleanup] restoreCommitSHA: invalid CommitSHA in persisted entry (value="${sha.slice(0, 80)}")`,
-    );
-    return Option.none();
+    return Either.left(CommitSHARestoreError.InvalidSHA({ raw: sha }));
   }
 
-  return Option.some(decoded.right);
+  return Either.right(decoded.right);
 };

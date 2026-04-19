@@ -70,14 +70,26 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
     }
 
     if (entry.customType === ENTRY_TYPE_GATES) {
-      runtime.gateConfig = restoreGateConfig(entry.data);
+      const result = restoreGateConfig(entry.data);
+
+      if (Either.isRight(result)) {
+        runtime.gateConfig = Option.some(result.right);
+      } else if (result.left._tag === "InvalidCommand") {
+        console.warn(
+          `[pi-cleanup] restoreFromEntries: discarding gate entry with invalid command (raw=${JSON.stringify(result.left.raw)?.slice(0, 80) ?? "undefined"})`,
+        );
+      }
     }
 
     if (entry.customType === ENTRY_TYPE_COMMIT) {
-      const restored = restoreCommitSHA(entry.data);
+      const result = restoreCommitSHA(entry.data);
 
-      if (Option.isSome(restored)) {
-        runtime.lastCleanCommitSHA = restored;
+      if (Either.isRight(result)) {
+        runtime.lastCleanCommitSHA = Option.some(result.right);
+      } else if (result.left._tag === "InvalidSHA") {
+        console.warn(
+          `[pi-cleanup] restoreFromEntries: invalid CommitSHA in persisted entry (raw="${result.left.raw.slice(0, 80)}")`,
+        );
       }
     }
   }
