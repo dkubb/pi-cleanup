@@ -29,6 +29,11 @@ import {
  * the valid subset would weaken the gate set without any signal to
  * the user.
  *
+ * Logs a warning on the first invalid element so a corrupted
+ * persisted entry is distinguishable from an absent one in
+ * extension logs — the None return alone cannot tell the caller
+ * which case occurred.
+ *
  * @param rawCommands - The raw commands array from persisted data.
  * @returns All validated commands, or None if any element is invalid.
  */
@@ -39,6 +44,9 @@ const parseGateCommands = (rawCommands: unknown[]): Option.Option<GateCommand[]>
     const decoded = decodeGateCommand(cmd);
 
     if (Either.isLeft(decoded)) {
+      console.warn(
+        `[pi-cleanup] parseGateCommands: invalid command in persisted gate entry; discarding whole entry (value=${JSON.stringify(cmd)?.slice(0, 80) ?? "undefined"})`,
+      );
       return Option.none();
     }
 
@@ -112,6 +120,11 @@ export const restoreGateConfig = (data: unknown): Option.Option<GateConfig> => {
 /**
  * Restore a clean commit SHA from a custom entry's data.
  *
+ * Returns None for all failure causes — absent record, non-string
+ * `sha` field, string that fails to decode as a CommitSHA — but
+ * logs a warning on the last case so a corrupted persisted entry
+ * is distinguishable from a simply-absent one in extension logs.
+ *
  * @param data - The raw entry data from the session.
  * @returns The restored CommitSHA, or None.
  */
@@ -123,5 +136,14 @@ export const restoreCommitSHA = (data: unknown): Option.Option<CommitSHA> => {
     return Option.none();
   }
 
-  return Either.getRight(decodeCommitSHA(sha));
+  const decoded = decodeCommitSHA(sha);
+
+  if (Either.isLeft(decoded)) {
+    console.warn(
+      `[pi-cleanup] restoreCommitSHA: invalid CommitSHA in persisted entry (value="${sha.slice(0, 80)}")`,
+    );
+    return Option.none();
+  }
+
+  return Option.some(decoded.right);
 };
