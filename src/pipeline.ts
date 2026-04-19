@@ -18,13 +18,13 @@ import {
   runDirtyTreePhase,
   runGatePhase,
 } from "./pipeline-phases.js";
-import { checkAtomicity } from "./phases/atomicity.js";
-import { checkGitStatus, isGitRepo } from "./phases/dirty-tree.js";
-import { runGates } from "./phases/gates.js";
+import { isGitRepo } from "./phases/dirty-tree.js";
 import { isGitUnchanged, resolveBaseSHA } from "./phases/git-status.js";
+import { recordPriorCycleCompletion } from "./pipeline-record.js";
 import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
+import { isCycleInProgress, skipReason } from "./pipeline-skip.js";
 import type { RuntimeState } from "./runtime.js";
-import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
+import { type CleanupState, TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
 import {
   AttemptCount as AttemptCountSchema,
@@ -75,118 +75,7 @@ const getAttempts = (state: CleanupState): AttemptCount =>
     Match.orElse(() => ZERO_ATTEMPTS),
   );
 
-/**
- * Whether a cleanup cycle is mid-progress (awaiting review or eval).
- *
- * @param runtime - The runtime state to check.
- * @returns True if a cycle phase is pending.
- */
-export const isCycleInProgress = (runtime: RuntimeState): boolean =>
-  runtime.reviewPending || runtime.evalPending;
-
-/**
- * Check whether the pipeline should be skipped entirely.
- *
- * Allows mid-cycle continuation even without new mutations.
- *
- * @param runtime - The runtime state to check.
- * @returns True if the pipeline should not run.
- */
-const shouldSkip = (runtime: RuntimeState): boolean =>
-  !isActionable(runtime.cleanup) ||
-  runtime.cycleComplete ||
-  (!runtime.mutationDetected && !isCycleInProgress(runtime));
-
-/**
- * Record any completion from the prior cycle based on the entry state.
- *
- * Each `WaitingFor*` state is a request the agent was asked to fulfil
- * last cycle. By observing the relevant git/gate state at this cycle's
- * entry, we can tell whether the request was honored and push the
- * corresponding `cycleActions` entry. This centralization is necessary
- * because a phase further down the pipeline may dispatch a fresh
- * failure and short-circuit the orchestrator before its own success
- * branch ever runs.
- *
- * @param pi - The extension API for exec.
- * @param runtime - The mutable runtime state.
- */
-const recordTreeFixIfCommitted = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
-  const status = await checkGitStatus(pi.exec.bind(pi));
-
-  if (status._tag === "Clean") {
-    runtime.cycleActions.push("Committed uncommitted changes");
-  }
-};
-
-const recordGateFixIfPassing = async (
-  pi: ExtensionAPI,
-  runtime: RuntimeState,
-  failedGate: string,
-): Promise<void> => {
-  if (Option.isNone(runtime.gateConfig)) {
-    return;
-  }
-
-  const stillTracked = runtime.gateConfig.value.commands.some((cmd) => String(cmd) === failedGate);
-
-  if (!stillTracked) {
-    return;
-  }
-
-  const gates = await runGates(pi.exec.bind(pi), runtime.gateConfig.value);
-
-  if (gates._tag === "AllPassed") {
-    runtime.cycleActions.push(`Fixed failing gate: \`${failedGate}\``);
-  }
-};
-
-const recordFactoringIfComplete = async (
-  pi: ExtensionAPI,
-  runtime: RuntimeState,
-  priorHeadSHA: string,
-): Promise<void> => {
-  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
-  const headEither = decodeCommitSHA(headResult.stdout.trim());
-
-  if (Either.isLeft(headEither)) {
-    console.warn(
-      `[pi-cleanup] recordFactoringIfComplete: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
-    );
-    return;
-  }
-
-  if (String(headEither.right) === priorHeadSHA) {
-    return;
-  }
-
-  const atomicity = await checkAtomicity(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
-
-  if (atomicity._tag === "Atomic" || atomicity._tag === "NoBase") {
-    runtime.cycleActions.push("Factored commits into atomic units");
-  }
-};
-
-export const recordPriorCycleCompletion = async (
-  pi: ExtensionAPI,
-  runtime: RuntimeState,
-): Promise<void> => {
-  const entry = runtime.cleanup;
-
-  if (entry._tag === "WaitingForTreeFix") {
-    await recordTreeFixIfCommitted(pi, runtime);
-    return;
-  }
-
-  if (entry._tag === "WaitingForGateFix") {
-    await recordGateFixIfPassing(pi, runtime, String(entry.failedGate));
-    return;
-  }
-
-  if (entry._tag === "WaitingForFactoring") {
-    await recordFactoringIfComplete(pi, runtime, String(entry.priorHeadSHA));
-  }
-};
+export { recordPriorCycleCompletion } from "./pipeline-record.js";
 
 /**
  * Check whether the attempt limit has been exceeded.
@@ -345,7 +234,7 @@ export const handleAgentEnd = async (
   runtime: RuntimeState,
   ctx: ExtensionContext,
 ): Promise<void> => {
-  if (shouldSkip(runtime)) {
+  if (Option.isSome(skipReason(runtime))) {
     return;
   }
 

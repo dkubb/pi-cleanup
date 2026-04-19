@@ -3,7 +3,8 @@ import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
-import { handleAgentEnd, isCycleInProgress, recordPriorCycleCompletion } from "../src/pipeline.js";
+import { handleAgentEnd, recordPriorCycleCompletion } from "../src/pipeline.js";
+import { isCycleInProgress } from "../src/pipeline-skip.js";
 import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
