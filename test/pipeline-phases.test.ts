@@ -245,13 +245,13 @@ describe("checkConvergence", () => {
 // ---------------------------------------------------------------------------
 
 describe("runGatePhase", () => {
-  it("returns true and transitions when no gate config", async () => {
+  it("returns None and transitions when no gate config", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     const { ctx, notify } = makeCtx();
 
     const result = await runGatePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(true);
+    expect(Option.isNone(result)).toStrictEqual(true);
     expect(runtime.cleanup._tag).toStrictEqual("AwaitingUserInput");
     expect(notify).toHaveBeenCalledWith(
       "No quality gates configured. Use /gates to set up.",
@@ -259,10 +259,11 @@ describe("runGatePhase", () => {
     );
   });
 
-  it("returns false when all gates pass", async () => {
+  it("returns Some(gateConfig) when all gates pass", async () => {
     const runtime = createInitialRuntimeState();
     const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
-    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const config = { commands: [cmd] as const, description: "test" };
+    runtime.gateConfig = Option.some(config);
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
       code: 0,
@@ -272,10 +273,13 @@ describe("runGatePhase", () => {
     const { ctx } = makeCtx();
 
     const result = await runGatePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(false);
+    expect(Option.isSome(result)).toStrictEqual(true);
+    if (Option.isSome(result)) {
+      expect(result.value).toStrictEqual(config);
+    }
   });
 
-  it("returns true and sends fix message when gate fails", async () => {
+  it("returns None and sends fix message when gate fails", async () => {
     const runtime = createInitialRuntimeState();
     const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
     runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
@@ -288,7 +292,7 @@ describe("runGatePhase", () => {
     const { ctx } = makeCtx();
 
     const result = await runGatePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(true);
+    expect(Option.isNone(result)).toStrictEqual(true);
     expect(runtime.cleanup._tag).toStrictEqual("WaitingForGateFix");
     expect(sendUserMessage).toHaveBeenCalled();
   });

@@ -26,7 +26,12 @@ import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
 import type { RuntimeState } from "./runtime.js";
 import { type CleanupState, TransitionEvent, isActionable, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
-import { AttemptCount as AttemptCountSchema, type AttemptCount, decodeCommitSHA } from "./types.js";
+import {
+  AttemptCount as AttemptCountSchema,
+  type AttemptCount,
+  decodeCommitSHA,
+  type GateConfig,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -247,19 +252,23 @@ const runEvalOrComplete = async (
   pi.sendUserMessage("/cleanup collapse", { deliverAs: "followUp" });
 };
 
+/** Context for the git-dependent phases. */
+interface GitPhaseContext {
+  readonly pi: ExtensionAPI;
+  readonly runtime: RuntimeState;
+  readonly ctx: ExtensionContext;
+  readonly gateConfig: GateConfig;
+}
+
 /**
  * Run git-dependent phases: dirty tree + review + atomicity.
  *
- * @param pi - The extension API.
- * @param runtime - The mutable runtime state.
- * @param ctx - The extension context.
+ * @param phaseCtx - The git-phase context with the unwrapped gateConfig.
  * @returns True if a phase needs agent action.
  */
-const runGitPhases = async (
-  pi: ExtensionAPI,
-  runtime: RuntimeState,
-  ctx: ExtensionContext,
-): Promise<boolean> => {
+const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
+  const { pi, runtime, ctx, gateConfig } = phaseCtx;
+
   if (!(await isGitRepo(pi.exec.bind(pi)))) {
     return false;
   }
@@ -276,8 +285,6 @@ const runGitPhases = async (
   if (runReviewIfNeeded({ baseSHA, commitCount, headEither, phaseCtx: { ctx, pi, runtime } })) {
     return true;
   }
-
-  const gateConfig = Option.getOrThrow(runtime.gateConfig);
 
   if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
     return true;
@@ -326,11 +333,13 @@ export const handleAgentEnd = async (
     return;
   }
 
-  if (await runGatePhase(pi, runtime, ctx)) {
+  const gateResult = await runGatePhase(pi, runtime, ctx);
+
+  if (Option.isNone(gateResult)) {
     return;
   }
 
-  if (await runGitPhases(pi, runtime, ctx)) {
+  if (await runGitPhases({ ctx, gateConfig: gateResult.value, pi, runtime })) {
     return;
   }
 

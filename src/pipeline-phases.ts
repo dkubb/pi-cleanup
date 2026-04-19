@@ -85,35 +85,39 @@ export const checkConvergence = async (
  * @param pi - The extension API for exec and messaging.
  * @param runtime - The mutable runtime state.
  * @param ctx - The extension context for notifications.
- * @returns True if the phase handled the event (caller should return).
+ * @returns Some(GateConfig) if gates passed and the caller should
+ *   continue; None if the phase handled the event (caller returns).
+ *   Returning the unwrapped GateConfig lets later phases use it
+ *   without an unchecked Option.getOrThrow on runtime state.
  */
 export const runGatePhase = async (
   pi: ExtensionAPI,
   runtime: RuntimeState,
   ctx: ExtensionContext,
-): Promise<boolean> => {
+): Promise<Option.Option<GateConfig>> => {
   if (Option.isNone(runtime.gateConfig)) {
     dispatch(runtime, ctx, TransitionEvent.NoGateConfig());
     ctx.ui.notify("No quality gates configured. Use /gates to set up.", "warning");
 
-    return true;
+    return Option.none();
   }
 
-  const result = await runGates(pi.exec.bind(pi), runtime.gateConfig.value);
+  const gateConfig = runtime.gateConfig.value;
+  const result = await runGates(pi.exec.bind(pi), gateConfig);
 
   return Match.value(result).pipe(
-    Match.tag("Failed", (r): true => {
+    Match.tag("Failed", (r): Option.Option<GateConfig> => {
       dispatch(runtime, ctx, TransitionEvent.GateFailed(r));
       captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildGateFixMessage(r.command, r.output));
 
-      return true;
+      return Option.none();
     }),
-    Match.tag("AllPassed", (): false => {
+    Match.tag("AllPassed", (): Option.Option<GateConfig> => {
       if (runtime.cleanup._tag === "WaitingForGateFix") {
         dispatch(runtime, ctx, TransitionEvent.GatesPassed());
       }
-      return false;
+      return Option.some(gateConfig);
     }),
     Match.exhaustive,
   );
