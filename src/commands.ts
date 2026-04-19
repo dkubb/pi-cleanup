@@ -15,6 +15,16 @@ import { TransitionEvent, transition } from "./state-machine.js";
 import { updateStatus } from "./status.js";
 import { type GateCommand, type GateConfig, decodeGateCommand } from "./types.js";
 
+const GATES_CONFIGURE_SUBCOMMAND = "configure" as const;
+const GATES_CONFIGURE_USAGE =
+  "Usage: /gates configure <command>\nProvide one command per line for multiple gates.";
+
+interface GatesCommandAction {
+  readonly pi: ExtensionAPI;
+  readonly runtime: RuntimeState;
+  readonly ctx: ExtensionCommandContext;
+}
+
 // ---------------------------------------------------------------------------
 // /gates Subcommands
 // ---------------------------------------------------------------------------
@@ -51,6 +61,24 @@ const handleGatesClear = (
   runtime.gateConfig = Option.none();
   persistGatesClear(pi.appendEntry.bind(pi));
   ctx.ui.notify("Gates cleared.", "info");
+};
+
+/**
+ * Apply a validated gate configuration.
+ *
+ * @param action - The shared gates command action context.
+ * @param config - The validated gate configuration.
+ */
+const applyGateConfig = (action: GatesCommandAction, config: GateConfig): void => {
+  action.runtime.gateConfig = Option.some(config);
+  persistGateConfig(action.pi.appendEntry.bind(action.pi), config);
+
+  if (action.runtime.cleanup._tag === "AwaitingUserInput") {
+    action.runtime.cleanup = transition(action.runtime.cleanup, TransitionEvent.GatesConfigured());
+    updateStatus(action.ctx, action.runtime.cleanup);
+  }
+
+  action.ctx.ui.notify(`Gates configured: ${String(config.commands.length)} commands.`, "info");
 };
 
 /**
@@ -124,15 +152,29 @@ const handleGatesEditor = async (
     return;
   }
 
-  runtime.gateConfig = Option.some(config);
-  persistGateConfig(pi.appendEntry.bind(pi), config);
+  applyGateConfig({ ctx, pi, runtime }, config);
+};
 
-  if (runtime.cleanup._tag === "AwaitingUserInput") {
-    runtime.cleanup = transition(runtime.cleanup, TransitionEvent.GatesConfigured());
-    updateStatus(ctx, runtime.cleanup);
+/**
+ * Handle `/gates configure <commands>`.
+ *
+ * @param action - The shared command action context.
+ * @param input - The raw configure input after the subcommand.
+ */
+const handleGatesConfigure = (action: GatesCommandAction, input: string): void => {
+  if (input.trim().length === 0) {
+    action.ctx.ui.notify(GATES_CONFIGURE_USAGE, "warning");
+
+    return;
   }
 
-  ctx.ui.notify(`Gates configured: ${String(config.commands.length)} commands.`, "info");
+  const config = parseGateInput(input, action.ctx);
+
+  if (config === undefined) {
+    return;
+  }
+
+  applyGateConfig(action, config);
 };
 
 // ---------------------------------------------------------------------------
@@ -225,7 +267,7 @@ const storeCommandCtx = (runtime: RuntimeState, ctx: ExtensionCommandContext): v
 
 export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   pi.registerCommand("gates", {
-    description: "Configure quality gate commands (no args: editor, show, clear)",
+    description: "Configure quality gate commands (no args: editor, show, clear, configure)",
     handler: async (args, ctx) => {
       storeCommandCtx(runtime, ctx);
       const trimmed = args.trim();
@@ -238,6 +280,14 @@ export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): v
 
       if (trimmed === "clear") {
         handleGatesClear(pi, runtime, ctx);
+
+        return;
+      }
+
+      if (trimmed.startsWith(GATES_CONFIGURE_SUBCOMMAND)) {
+        const input = trimmed.slice(GATES_CONFIGURE_SUBCOMMAND.length).trimStart();
+
+        handleGatesConfigure({ ctx, pi, runtime }, input);
 
         return;
       }
