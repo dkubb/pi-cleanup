@@ -45,6 +45,10 @@ export const isGitUnchanged = async (
 
   const statusResult = await exec("git", ["status", "--porcelain"]);
 
+  if (statusResult.code !== 0) {
+    return false;
+  }
+
   return statusResult.stdout.trim().length === 0;
 };
 

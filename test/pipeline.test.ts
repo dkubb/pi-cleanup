@@ -270,4 +270,12 @@ describe("isGitUnchanged", () => {
 
     expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(true);
   });
+
+  it("returns false when HEAD matches but git status exits non-zero", async () => {
+    const exec = vi.fn()
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
+      .mockResolvedValueOnce({ code: 128, stderr: "fatal: not a repo", stdout: "" });
+
+    expect(await isGitUnchanged(exec, Option.some(sha1))).toStrictEqual(false);
+  });
 });
