@@ -99,7 +99,7 @@ export const getCommitCount = async (
  * @returns True if the phase needs agent action.
  */
 export const runReviewIfNeeded = (input: ReviewInput): boolean => {
-  const { phaseCtx, baseSHA, commitCount } = input;
+  const { phaseCtx, baseSHA, headEither, commitCount } = input;
   const { pi, runtime, ctx } = phaseCtx;
 
   if (!hasReviewableRange(input)) {
@@ -114,11 +114,16 @@ export const runReviewIfNeeded = (input: ReviewInput): boolean => {
     return false;
   }
 
+  // Narrow defensively. HasReviewableRange already proved these are
+  // Some/Right, but the types are the broader Option/Either, so a
+  // Future guard edit cannot silently drift past the old casts.
+  if (Option.isNone(baseSHA) || Either.isLeft(headEither)) {
+    return false;
+  }
+
   runtime.reviewPending = true;
   captureCollapseAnchor(runtime, ctx);
-  const base = (baseSHA as Option.Some<CommitSHA>).value;
-  const head = Either.getOrThrow(input.headEither as Either.Either<CommitSHA>);
-  pi.sendUserMessage(buildReviewMessage(base, head, commitCount));
+  pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right, commitCount));
 
   return true;
 };
