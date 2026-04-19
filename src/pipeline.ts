@@ -42,7 +42,7 @@ import {
 const MAX_ATTEMPTS = 5;
 
 /** Decode 0 as an AttemptCount. */
-const ZERO_ATTEMPTS: AttemptCount = Schema.decodeUnknownSync(AttemptCountSchema)(0);
+const NO_ATTEMPTS: AttemptCount = Schema.decodeUnknownSync(AttemptCountSchema)(0);
 
 /** The eval prompt sent after all phases pass. */
 const EVAL_MESSAGE = [
@@ -68,7 +68,7 @@ const EVAL_MESSAGE = [
  */
 export const getAttempts = (state: CleanupState): AttemptCount =>
   Match.value(state).pipe(
-    Match.tag("Idle", () => ZERO_ATTEMPTS),
+    Match.tag("Idle", () => NO_ATTEMPTS),
     Match.tag("WaitingForTreeFix", (s) => s.attempts),
     Match.tag("WaitingForGateFix", (s) => s.attempts),
     Match.tag("WaitingForFactoring", (s) => s.attempts),
@@ -76,8 +76,8 @@ export const getAttempts = (state: CleanupState): AttemptCount =>
     // Handler gates on isActionable before calling getAttempts) but
     // Enumerated so a new CleanupState variant produces a compile
     // Error. Exported so tests can exercise these arms directly.
-    Match.tag("AwaitingUserInput", () => ZERO_ATTEMPTS),
-    Match.tag("Disabled", () => ZERO_ATTEMPTS),
+    Match.tag("AwaitingUserInput", () => NO_ATTEMPTS),
+    Match.tag("Disabled", () => NO_ATTEMPTS),
     Match.exhaustive,
   );
 
