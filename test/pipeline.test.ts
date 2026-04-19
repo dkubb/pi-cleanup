@@ -47,7 +47,7 @@ const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
   return {
     input: {
       baseSHA: Option.some(sha2),
-      commitCount: 3,
+      commitCount: Option.some(3),
       headEither: Either.right(sha1),
       phaseCtx: { ctx, pi, runtime },
       ...overrides,
@@ -139,7 +139,7 @@ describe("runReviewIfNeeded", () => {
 
     runReviewIfNeeded({
       baseSHA: Option.some(sha2),
-      commitCount: 1,
+      commitCount: Option.some(1),
       headEither: Either.right(sha1),
       phaseCtx: { ctx, pi, runtime },
     });
@@ -414,19 +414,19 @@ describe("handleAgentEnd", () => {
 // ---------------------------------------------------------------------------
 
 describe("getCommitCount", () => {
-  it("returns 0 when HEAD is invalid", async () => {
+  it("returns None when HEAD is invalid", async () => {
     const { pi } = makePi();
     const result = await getCommitCount(pi, Either.left("bad"), Option.some(sha1));
-    expect(result).toStrictEqual(0);
+    expect(result).toStrictEqual(Option.none());
   });
 
-  it("returns 0 when baseSHA is None", async () => {
+  it("returns None when baseSHA is None", async () => {
     const { pi } = makePi();
     const result = await getCommitCount(pi, Either.right(sha1), Option.none());
-    expect(result).toStrictEqual(0);
+    expect(result).toStrictEqual(Option.none());
   });
 
-  it("returns parsed count from rev-list", async () => {
+  it("returns Some(count) from rev-list output", async () => {
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
       code: 0,
@@ -434,10 +434,10 @@ describe("getCommitCount", () => {
       stdout: "5\n",
     });
     const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
-    expect(result).toStrictEqual(5);
+    expect(result).toStrictEqual(Option.some(5));
   });
 
-  it("returns 0 when rev-list output is not a number", async () => {
+  it("returns None when rev-list output is not a number (no longer coerces to 0)", async () => {
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
       code: 0,
@@ -445,7 +445,7 @@ describe("getCommitCount", () => {
       stdout: "not-a-number\n",
     });
     const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
-    expect(result).toStrictEqual(0);
+    expect(result).toStrictEqual(Option.none());
   });
 });
 

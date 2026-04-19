@@ -222,7 +222,7 @@ describe("checkAtomicity — Atomic", () => {
     expect(result._tag).toStrictEqual("Atomic");
   });
 
-  it("returns Atomic when rev-list output is not a number", async () => {
+  it("returns Indeterminate when rev-list output is not a number (no longer silently treats as Atomic)", async () => {
     const exec: ExecFn = async (_cmd, args) => {
       const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
         "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
@@ -232,7 +232,7 @@ describe("checkAtomicity — Atomic", () => {
       return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
     };
     const result = await checkAtomicity(exec, Option.some(sha2));
-    expect(result._tag).toStrictEqual("Atomic");
+    expect(result._tag).toStrictEqual("Indeterminate");
   });
 
   it("uses lastCleanSHA as base when provided (skips merge-base)", async () => {

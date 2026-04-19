@@ -31,7 +31,7 @@ export interface ReviewInput {
   readonly phaseCtx: ReviewPhaseContext;
   readonly headEither: Either.Either<CommitSHA, unknown>;
   readonly baseSHA: Option.Option<CommitSHA>;
-  readonly commitCount: number;
+  readonly commitCount: Option.Option<number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -48,6 +48,7 @@ const hasReviewableRange = (input: ReviewInput): boolean =>
   !input.phaseCtx.runtime.reviewComplete &&
   Either.isRight(input.headEither) &&
   Option.isSome(input.baseSHA) &&
+  Option.isSome(input.commitCount) &&
   String(input.headEither.right) !== String(input.baseSHA.value);
 
 // ---------------------------------------------------------------------------
@@ -57,18 +58,27 @@ const hasReviewableRange = (input: ReviewInput): boolean =>
 /**
  * Count commits in a range.
  *
+ * Returns None when a count cannot be determined:
+ * - the range endpoints aren't both known (HEAD parse failure or no base);
+ * - rev-list output doesn't parse as a non-negative integer.
+ *
+ * All three causes are distinct real-world outcomes but they share the
+ * same consequence for the caller: there is no reliable count to base a
+ * review request on, so the review phase is skipped.
+ *
  * @param pi - The extension API for exec.
  * @param headEither - The parsed HEAD SHA.
  * @param baseSHA - The base SHA.
- * @returns The number of commits, or 0 if indeterminate.
+ * @returns Some(count) when rev-list produced a valid non-negative
+ *   integer; None otherwise.
  */
 export const getCommitCount = async (
   pi: ExtensionAPI,
   headEither: Either.Either<CommitSHA, unknown>,
   baseSHA: Option.Option<CommitSHA>,
-): Promise<number> => {
+): Promise<Option.Option<number>> => {
   if (!Either.isRight(headEither) || Option.isNone(baseSHA)) {
-    return 0;
+    return Option.none();
   }
 
   const result = await pi.exec("git", [
@@ -80,10 +90,13 @@ export const getCommitCount = async (
   const count = Number.parseInt(result.stdout.trim(), 10);
 
   if (Number.isNaN(count)) {
-    return 0;
+    console.warn(
+      `[pi-cleanup] getCommitCount: failed to parse rev-list count (exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
+    );
+    return Option.none();
   }
 
-  return count;
+  return Option.some(count);
 };
 
 // ---------------------------------------------------------------------------
@@ -115,15 +128,15 @@ export const runReviewIfNeeded = (input: ReviewInput): boolean => {
   }
 
   // Narrow defensively. HasReviewableRange already proved these are
-  // Some/Right, but the types are the broader Option/Either, so a
-  // Future guard edit cannot silently drift past the old casts.
-  if (Option.isNone(baseSHA) || Either.isLeft(headEither)) {
+  // Some/Right/Some, but the types are the broader Option/Either, so
+  // A future guard edit cannot silently drift past the old casts.
+  if (Option.isNone(baseSHA) || Either.isLeft(headEither) || Option.isNone(commitCount)) {
     return false;
   }
 
   runtime.reviewPending = true;
   captureCollapseAnchor(runtime, ctx);
-  pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right, commitCount));
+  pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right, commitCount.value));
 
   return true;
 };

@@ -138,10 +138,15 @@ const resolveBaseSHA = async (
 /**
  * Classify the commit count between base and HEAD.
  *
+ * Returns Indeterminate when `rev-list --count` output fails to parse:
+ * we cannot tell Atomic from NeedsFactoring without a valid count, so
+ * we must surface the uncertainty rather than default to Atomic.
+ *
  * @param exec - The injected exec function.
  * @param headSHA - The validated HEAD SHA.
  * @param baseSHA - The validated base SHA.
- * @returns Atomic if ≤1 commit, NeedsFactoring otherwise.
+ * @returns Atomic if ≤1 commit, NeedsFactoring if >1, Indeterminate if
+ *   rev-list output could not be parsed as a non-negative integer.
  */
 const classifyCommitRange = async (
   exec: ExecFn,
@@ -151,7 +156,14 @@ const classifyCommitRange = async (
   const countResult = await exec("git", ["rev-list", "--count", `${String(baseSHA)}..HEAD`]);
   const count = Number.parseInt(countResult.stdout.trim(), 10);
 
-  if (Number.isNaN(count) || count <= 1) {
+  if (Number.isNaN(count)) {
+    console.warn(
+      `[pi-cleanup] classifyCommitRange: failed to parse rev-list count (exit=${String(countResult.code)}, stdout="${countResult.stdout.slice(0, 80)}")`,
+    );
+    return AtomicityResult.Indeterminate();
+  }
+
+  if (count <= 1) {
     return AtomicityResult.Atomic({ headSHA });
   }
 
