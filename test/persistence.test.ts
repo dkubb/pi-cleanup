@@ -183,9 +183,7 @@ describe("multiple persistence calls are independent", () => {
     const { fn, calls } = makeAppend();
     persistGateConfig(fn, singleCmdConfig);
     persistGateConfig(fn, multiCmdConfig);
-    expect(calls).toHaveLength(2);
-    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
-    expect(calls[1]!.type).toStrictEqual(ENTRY_TYPE_GATES);
+    expect(calls.map((c) => c.type)).toStrictEqual([ENTRY_TYPE_GATES, ENTRY_TYPE_GATES]);
   });
 
   it("mixed persistence calls each produce one entry", () => {
@@ -193,9 +191,10 @@ describe("multiple persistence calls are independent", () => {
     persistGateConfig(fn, singleCmdConfig);
     persistGatesClear(fn);
     persistCleanCommit(fn, sha1);
-    expect(calls).toHaveLength(3);
-    expect(calls[0]!.type).toStrictEqual(ENTRY_TYPE_GATES);
-    expect(calls[1]!.type).toStrictEqual(ENTRY_TYPE_GATES);
-    expect(calls[2]!.type).toStrictEqual(ENTRY_TYPE_COMMIT);
+    expect(calls.map((c) => c.type)).toStrictEqual([
+      ENTRY_TYPE_GATES,
+      ENTRY_TYPE_GATES,
+      ENTRY_TYPE_COMMIT,
+    ]);
   });
 });

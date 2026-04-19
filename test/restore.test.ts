@@ -12,8 +12,7 @@ describe("restoreGateConfig — valid config", () => {
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
     const value = (result as Option.Some<typeof result.value>).value;
-    expect(value.commands).toHaveLength(1);
-    expect(value.commands[0]).toStrictEqual("npm test");
+    expect(value.commands).toStrictEqual(["npm test"]);
     expect(value.description).toStrictEqual("Run tests");
   });
 
@@ -25,10 +24,8 @@ describe("restoreGateConfig — valid config", () => {
     const result = restoreGateConfig(data);
     expect(Option.isSome(result)).toStrictEqual(true);
     const value = (result as Option.Some<typeof result.value>).value;
-    expect(value.commands).toHaveLength(3);
-    expect(value.commands[0]).toStrictEqual("npm test");
-    expect(value.commands[1]).toStrictEqual("npm run lint");
-    expect(value.commands[2]).toStrictEqual("npm run build");
+    expect(value.commands).toStrictEqual(["npm test", "npm run lint", "npm run build"]);
+    expect(value.description).toStrictEqual("Full CI");
   });
 
   it("uses default description when description is missing", () => {

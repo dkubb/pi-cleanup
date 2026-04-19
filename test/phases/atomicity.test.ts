@@ -248,7 +248,7 @@ describe("checkAtomicity — Atomic", () => {
     };
     await checkAtomicity(exec, Option.some(sha2));
     const mergeBaseCalls = calls.filter((c) => c.args[0] === "merge-base");
-    expect(mergeBaseCalls).toHaveLength(0);
+    expect(mergeBaseCalls).toStrictEqual([]);
   });
 });
 
@@ -335,7 +335,7 @@ describe("buildFactorMessage", () => {
     // The only `--exec` reference left should be the prose that tells
     // the agent how to pass the flags (mentioned once, verbatim).
     const execMatches = msg.match(/--exec/g) ?? [];
-    expect(execMatches).toHaveLength(1);
+    expect(execMatches).toStrictEqual(["--exec"]);
   });
 
   it("emits a single --exec flag for a single gate command", () => {
