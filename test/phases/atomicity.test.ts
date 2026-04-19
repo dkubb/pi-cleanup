@@ -328,45 +328,36 @@ describe("checkAtomicity — NeedsFactoring", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildFactorMessage", () => {
-  const expected = [
-    "All gates pass. Now ensure recent commits are atomic.",
-    "",
-    "Commits in range: `aaaaaaaa..bbbbbbbb`",
-    "",
-    "Use the git-factor skill to split any commits that mix",
-    "multiple logical changes.",
-  ];
-
-  it("returns the exact message with no gate commands", () => {
+  it("emits no --exec flags when gate list is empty", () => {
     const msg = buildFactorMessage(sha1, sha2, []);
 
-    expect(msg).toStrictEqual(
-      [...expected, "Use `--exec ''` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
-        "\n",
-      ),
-    );
+    expect(msg).toContain("Use `` as the validation gates");
+    // The only `--exec` reference left should be the prose that tells
+    // the agent how to pass the flags (mentioned once, verbatim).
+    const execMatches = msg.match(/--exec/g) ?? [];
+    expect(execMatches).toHaveLength(1);
   });
 
-  it("returns the exact message with a single gate command", () => {
+  it("emits a single --exec flag for a single gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test")]);
 
-    expect(msg).toStrictEqual(
-      [...expected, "Use `--exec 'npm test'` as the validation gate.", "", "After factoring (or if no factoring needed), confirm done."].join(
-        "\n",
-      ),
-    );
+    expect(msg).toContain("--exec 'npm test'");
+    expect(msg).not.toContain("&&");
   });
 
-  it("joins multiple gate commands with &&", () => {
+  it("emits one --exec flag per gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test"), cmd("npm run lint")]);
 
-    expect(msg).toStrictEqual(
-      [
-        ...expected,
-        "Use `--exec 'npm test && npm run lint'` as the validation gate.",
-        "",
-        "After factoring (or if no factoring needed), confirm done.",
-      ].join("\n"),
-    );
+    expect(msg).toContain("--exec 'npm test' --exec 'npm run lint'");
+    expect(msg).not.toContain("&&");
+  });
+
+  it("shell-quotes gate commands containing single quotes", () => {
+    // If a gate command contains a single quote, the previous naive
+    // '${cmd}' interpolation produced a broken shell snippet. Verify
+    // that single quotes are properly escaped using the '\''  pattern.
+    const msg = buildFactorMessage(sha1, sha2, [cmd("bash -c 'echo hi'")]);
+
+    expect(msg).toContain("--exec 'bash -c '\\''echo hi'\\'''");
   });
 });

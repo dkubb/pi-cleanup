@@ -198,14 +198,28 @@ export const checkAtomicity = async (
 };
 
 /**
+ * Shell-quote a string using POSIX single-quote rules.
+ *
+ * A single quote inside a single-quoted string closes the quote,
+ * emits an escaped quote, and reopens — i.e. `'\''`. This yields
+ * a quoted form that is safe to paste into an `sh -c` argument.
+ *
+ * @param value - The value to quote.
+ * @returns The single-quoted string.
+ */
+const shellQuote = (value: string): string => `'${value.replaceAll("'", String.raw`'\''`)}'`;
+
+/**
  * Build a user message asking the agent to factor commits.
  *
  * Instructs the agent to apply the git-factor skill with the commit
- * range and gate commands as the --exec validation gate.
+ * range and gate commands emitted as one `--exec` flag per command
+ * (each shell-quoted so gate strings containing single quotes don't
+ * corrupt the instruction).
  *
  * @param baseSHA - The base commit SHA (start of range).
  * @param headSHA - The HEAD commit SHA (end of range).
- * @param gateCommands - Gate commands to use as the --exec validation gate.
+ * @param gateCommands - Gate commands to use as the --exec validation gates.
  * @returns A formatted message string for `sendUserMessage`.
  */
 export const buildFactorMessage = (
@@ -213,7 +227,9 @@ export const buildFactorMessage = (
   headSHA: CommitSHA,
   gateCommands: readonly GateCommand[],
 ): string => {
-  const gateExec = gateCommands.map(String).join(" && ");
+  const execFlags = gateCommands
+    .map((command) => `--exec ${shellQuote(String(command))}`)
+    .join(" ");
   const shortBase = String(baseSHA).slice(0, 8);
   const shortHead = String(headSHA).slice(0, 8);
 
@@ -224,7 +240,8 @@ export const buildFactorMessage = (
     "",
     "Use the git-factor skill to split any commits that mix",
     "multiple logical changes.",
-    `Use \`--exec '${gateExec}'\` as the validation gate.`,
+    `Use \`${execFlags}\` as the validation gates (pass each`,
+    "`--exec` flag verbatim to git-factor).",
     "",
     "After factoring (or if no factoring needed), confirm done.",
   ].join("\n");
