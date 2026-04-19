@@ -356,6 +356,22 @@ state to correctly model the pipeline. Requiring explicit
 configuration ensures the user makes a deliberate choice about
 what quality checks to run.
 
+### Gate Side-Effect Convention
+
+Gate commands should be side-effect-free, or — if a gate
+writes to tracked files (coverage ratchets, lockfiles, generated
+configs, etc.) — the gate must stage those writes with `git add`
+before it exits. If a gate leaves the tree dirty, the pipeline
+sees "dirty tree after gate passed" and re-enters
+`WaitingForTreeFix`, which can loop indefinitely in pathological
+cases.
+
+Example: this project's `just test` recipe runs
+`vitest run --coverage` with `autoUpdate: true`, then
+`git add vitest.config.ts` so any coverage-threshold update is
+part of the same cycle's work rather than a new dirty-tree
+observation.
+
 ### Handler Entry Logic
 
 `handleAgentEnd` runs when `isActionable(state)` returns `true`

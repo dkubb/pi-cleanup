@@ -33,6 +33,9 @@ lint:
 typecheck:
     tsc --noEmit
 
-# Run tests with coverage
+# Run tests with coverage. Stage any autoUpdate writeback so the
+# cleanup pipeline sees a clean tree after the gate runs (convention:
+# gates that modify tracked files must stage their writes).
 test:
     vitest run --coverage
+    git add vitest.config.ts
