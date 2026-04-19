@@ -147,6 +147,29 @@ const asCommandsArray = (
   return Either.right(rawCommands);
 };
 
+const asNonEmptyCommands = (
+  commands: GateCommand[],
+): Either.Either<readonly [GateCommand, ...GateCommand[]], GateConfigRestoreError> => {
+  const [first, ...rest] = commands;
+
+  if (first === undefined) {
+    return Either.left(GateConfigRestoreError.CommandsEmpty());
+  }
+
+  return Either.right([first, ...rest]);
+};
+
+const resolveGateConfigDescription = (record: Record<string, unknown>): string => {
+  const { description } = record;
+
+  return resolveDescription(description);
+};
+
+const buildGateConfig = (
+  commands: readonly [GateCommand, ...GateCommand[]],
+  record: Record<string, unknown>,
+): GateConfig => ({ commands, description: resolveGateConfigDescription(record) });
+
 /**
  * Restore gate config from a custom entry's data.
  *
@@ -156,23 +179,33 @@ const asCommandsArray = (
  */
 export const restoreGateConfig = (
   data: unknown,
-): Either.Either<GateConfig, GateConfigRestoreError> =>
-  Either.flatMap(asRecord(data), (record) =>
-    Either.flatMap(asCommandsArray(record), (rawCommands) =>
-      Either.flatMap(parseGateCommands(rawCommands), (commands) => {
-        const [first, ...rest] = commands;
+): Either.Either<GateConfig, GateConfigRestoreError> => {
+  const recordResult = asRecord(data);
 
-        if (first === undefined) {
-          return Either.left(GateConfigRestoreError.CommandsEmpty());
-        }
+  if (Either.isLeft(recordResult)) {
+    return Either.left(recordResult.left);
+  }
 
-        return Either.right({
-          commands: [first, ...rest],
-          description: resolveDescription(record["description"]),
-        });
-      }),
-    ),
-  );
+  const commandsArrayResult = asCommandsArray(recordResult.right);
+
+  if (Either.isLeft(commandsArrayResult)) {
+    return Either.left(commandsArrayResult.left);
+  }
+
+  const commandsResult = parseGateCommands(commandsArrayResult.right);
+
+  if (Either.isLeft(commandsResult)) {
+    return Either.left(commandsResult.left);
+  }
+
+  const nonEmptyCommandsResult = asNonEmptyCommands(commandsResult.right);
+
+  if (Either.isLeft(nonEmptyCommandsResult)) {
+    return Either.left(nonEmptyCommandsResult.left);
+  }
+
+  return Either.right(buildGateConfig(nonEmptyCommandsResult.right, recordResult.right));
+};
 
 // ---------------------------------------------------------------------------
 // Commit SHA Restoration
