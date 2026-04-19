@@ -10,7 +10,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
-import { captureCollapseAnchor } from "./pipeline-phases.js";
+import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
 import type { CommitSHA } from "./types.js";

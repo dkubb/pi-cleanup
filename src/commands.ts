@@ -7,7 +7,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
-import { collapseIfNeeded } from "./pipeline-phases.js";
+import { collapseIfNeeded } from "./pipeline-collapse.js";
 
 import { persistGateConfig, persistGatesClear } from "./persistence.js";
 import type { RuntimeState } from "./runtime.js";

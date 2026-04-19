@@ -4,10 +4,12 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 
 import {
   captureCollapseAnchor,
-  checkConvergence,
   collapseIfNeeded,
-  dispatch,
   formatCycleActions,
+} from "../src/pipeline-collapse.js";
+import {
+  checkConvergence,
+  dispatch,
   runDirtyTreePhase,
   runGatePhase,
 } from "../src/pipeline-phases.js";

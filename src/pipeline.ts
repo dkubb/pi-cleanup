@@ -11,8 +11,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Match, Option, Schema } from "effect";
 
+import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import {
-  captureCollapseAnchor,
   checkConvergence,
   runAtomicityPhase,
   runDirtyTreePhase,
