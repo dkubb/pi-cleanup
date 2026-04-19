@@ -13,7 +13,7 @@ import {
 } from "../src/pipeline-phases.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
-import { AttemptCount, type CommitSHA, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
+import { AttemptCount, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
 
 // ---------------------------------------------------------------------------
 // formatCycleActions
@@ -288,6 +288,44 @@ describe("runGatePhase", () => {
     expect(result).toStrictEqual(true);
     expect(runtime.cleanup._tag).toStrictEqual("WaitingForGateFix");
     expect(sendUserMessage).toHaveBeenCalled();
+  });
+
+  it("does not record a cycle action when sending the initial fix request", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 1,
+      stderr: "error",
+      stdout: "FAIL",
+    });
+    const { ctx } = makeCtx();
+
+    await runGatePhase(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records a cycle action when a previously failing gate now passes", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("npm test"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.cleanup = CleanupState.WaitingForGateFix({
+      attempts: attempt(1),
+      failedGate: cmd,
+    });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "ok",
+    });
+    const { ctx } = makeCtx();
+
+    await runGatePhase(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
   });
 });
 

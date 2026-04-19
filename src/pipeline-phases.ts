@@ -168,13 +168,17 @@ export const runGatePhase = async (
   return Match.value(result).pipe(
     Match.tag("Failed", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GateFailed(r));
-      runtime.cycleActions.push(`Fixed failing gate: \`${String(r.command)}\``);
       captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildGateFixMessage(r.command, r.output));
 
       return true;
     }),
-    Match.tag("AllPassed", (): false => false),
+    Match.tag("AllPassed", (): false => {
+      if (runtime.cleanup._tag === "WaitingForGateFix") {
+        runtime.cycleActions.push(`Fixed failing gate: \`${String(runtime.cleanup.failedGate)}\``);
+      }
+      return false;
+    }),
     Match.exhaustive,
   );
 };
