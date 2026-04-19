@@ -109,12 +109,12 @@ export const runReviewIfNeeded = (input: ReviewInput): boolean => {
   if (runtime.reviewPending) {
     runtime.reviewPending = false;
     runtime.reviewComplete = true;
+    runtime.cycleActions.push("Delegated code review to subagent");
 
     return false;
   }
 
   runtime.reviewPending = true;
-  runtime.cycleActions.push("Delegated code review to subagent");
   captureCollapseAnchor(runtime, ctx);
   const base = (baseSHA as Option.Some<CommitSHA>).value;
   const head = Either.getOrThrow(input.headEither as Either.Either<CommitSHA>);

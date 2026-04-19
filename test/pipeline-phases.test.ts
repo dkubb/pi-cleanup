@@ -10,6 +10,7 @@ import {
 import {
   checkConvergence,
   dispatch,
+  runAtomicityPhase,
   runDirtyTreePhase,
   runGatePhase,
 } from "../src/pipeline-phases.js";
@@ -378,6 +379,89 @@ describe("runDirtyTreePhase", () => {
 
     const result = await runDirtyTreePhase(pi, runtime, ctx);
     expect(result).toStrictEqual(true);
+  });
+
+  it("does not record a cycle action when sending the initial commit request", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "M foo.ts\n",
+    });
+    const { ctx } = makeCtx();
+
+    await runDirtyTreePhase(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records a cycle action when the tree was previously dirty and is now clean", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForTreeFix({ attempts: attempt(1) });
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "",
+    });
+    const { ctx } = makeCtx();
+
+    await runDirtyTreePhase(pi, runtime, ctx);
+
+    expect(runtime.cycleActions).toStrictEqual(["Committed uncommitted changes"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runAtomicityPhase
+// ---------------------------------------------------------------------------
+
+describe("runAtomicityPhase — cycleActions timing", () => {
+  const gateCmd = Either.getOrThrow(decodeGateCommand("npm test"));
+  const gateConfig = { commands: [gateCmd] as const, description: "test" };
+
+  const primeAtomicityExec = (pi: ExtensionAPI, commitCount: string): void => {
+    (pi.exec as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: commitCount });
+  };
+
+  it("does not record a cycle action when sending the initial factor request", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    primeAtomicityExec(pi, "5");
+    const { ctx } = makeCtx();
+
+    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
+
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records a cycle action when previously factoring and commits are now atomic", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha2,
+    });
+    const { pi } = makePi();
+    primeAtomicityExec(pi, "1");
+    const { ctx } = makeCtx();
+
+    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
+
+    expect(runtime.cycleActions).toStrictEqual(["Factored commits into atomic units"]);
+  });
+
+  it("does not record a cycle action when first-cycle commits are already atomic", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    primeAtomicityExec(pi, "1");
+    const { ctx } = makeCtx();
+
+    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
+
+    expect(runtime.cycleActions).toStrictEqual([]);
   });
 });
 

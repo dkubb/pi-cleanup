@@ -144,8 +144,16 @@ describe("runReviewIfNeeded", () => {
     expect(Option.isSome(runtime.collapseAnchorId)).toStrictEqual(true);
   });
 
-  it("records action in cycleActions", () => {
+  it("does not record a cycle action on the initial review request", () => {
     const { input, runtime } = makeReviewInput();
+
+    runReviewIfNeeded(input);
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("records a cycle action when the second pass marks review complete", () => {
+    const { input, runtime } = makeReviewInput();
+    runtime.reviewPending = true;
 
     runReviewIfNeeded(input);
     expect(runtime.cycleActions).toStrictEqual(["Delegated code review to subagent"]);

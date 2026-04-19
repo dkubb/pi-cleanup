@@ -140,7 +140,6 @@ export const runDirtyTreePhase = async (
   return Match.value(result).pipe(
     Match.tag("Dirty", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GitDirty(r));
-      runtime.cycleActions.push("Committed uncommitted changes");
       captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildDirtyTreeMessage(r.porcelain));
 
@@ -151,7 +150,12 @@ export const runDirtyTreePhase = async (
 
       return true;
     }),
-    Match.tag("Clean", (): false => false),
+    Match.tag("Clean", (): false => {
+      if (runtime.cleanup._tag === "WaitingForTreeFix") {
+        runtime.cycleActions.push("Committed uncommitted changes");
+      }
+      return false;
+    }),
     Match.exhaustive,
   );
 };
@@ -198,13 +202,15 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
   return Match.value(result).pipe(
     Match.tag("NeedsFactoring", (r): false => {
       dispatch(runtime, ctx, TransitionEvent.NeedsFactoring(r));
-      runtime.cycleActions.push(`Factored ${String(r.commitCount)} commits into atomic units`);
       captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands));
 
       return false;
     }),
     Match.tag("Atomic", (r): true => {
+      if (runtime.cleanup._tag === "WaitingForFactoring") {
+        runtime.cycleActions.push("Factored commits into atomic units");
+      }
       handleAtomicitySuccess({
         ctx,
         event: TransitionEvent.Atomic(r),
