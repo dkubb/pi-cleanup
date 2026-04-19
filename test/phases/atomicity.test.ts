@@ -328,28 +328,36 @@ describe("checkAtomicity — NeedsFactoring", () => {
 // ---------------------------------------------------------------------------
 
 describe("buildFactorMessage", () => {
+  const expectedMessage = (execFlags: string): string =>
+    [
+      "All gates pass. Now ensure recent commits are atomic.",
+      "",
+      "Commits in range: `aaaaaaaa..bbbbbbbb`",
+      "",
+      "Use the git-factor skill to split any commits that mix",
+      "multiple logical changes.",
+      `Use \`${execFlags}\` as the validation gates (pass each`,
+      "`--exec` flag verbatim to git-factor).",
+      "",
+      "After factoring (or if no factoring needed), confirm done.",
+    ].join("\n");
+
   it("emits no --exec flags when gate list is empty", () => {
     const msg = buildFactorMessage(sha1, sha2, []);
 
-    expect(msg).toContain("Use `` as the validation gates");
-    // The only `--exec` reference left should be the prose that tells
-    // the agent how to pass the flags (mentioned once, verbatim).
-    const execMatches = msg.match(/--exec/g) ?? [];
-    expect(execMatches).toStrictEqual(["--exec"]);
+    expect(msg).toStrictEqual(expectedMessage(""));
   });
 
   it("emits a single --exec flag for a single gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test")]);
 
-    expect(msg).toContain("--exec 'npm test'");
-    expect(msg).not.toContain("&&");
+    expect(msg).toStrictEqual(expectedMessage("--exec 'npm test'"));
   });
 
   it("emits one --exec flag per gate command", () => {
     const msg = buildFactorMessage(sha1, sha2, [cmd("npm test"), cmd("npm run lint")]);
 
-    expect(msg).toContain("--exec 'npm test' --exec 'npm run lint'");
-    expect(msg).not.toContain("&&");
+    expect(msg).toStrictEqual(expectedMessage("--exec 'npm test' --exec 'npm run lint'"));
   });
 
   it("shell-quotes gate commands containing single quotes", () => {
@@ -358,6 +366,6 @@ describe("buildFactorMessage", () => {
     // that single quotes are properly escaped using the '\''  pattern.
     const msg = buildFactorMessage(sha1, sha2, [cmd("bash -c 'echo hi'")]);
 
-    expect(msg).toContain("--exec 'bash -c '\\''echo hi'\\'''");
+    expect(msg).toStrictEqual(expectedMessage(String.raw`--exec 'bash -c '\''echo hi'\'''`));
   });
 });
