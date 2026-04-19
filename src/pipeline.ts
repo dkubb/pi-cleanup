@@ -72,7 +72,12 @@ const getAttempts = (state: CleanupState): AttemptCount =>
     Match.tag("WaitingForTreeFix", (s) => s.attempts),
     Match.tag("WaitingForGateFix", (s) => s.attempts),
     Match.tag("WaitingForFactoring", (s) => s.attempts),
-    Match.orElse(() => ZERO_ATTEMPTS),
+    // Non-actionable states: unreachable here (handleAgentEnd gates
+    // On isActionable before calling getAttempts) but enumerated so a
+    // New CleanupState variant produces a compile error.
+    Match.tag("AwaitingUserInput", () => ZERO_ATTEMPTS),
+    Match.tag("Disabled", () => ZERO_ATTEMPTS),
+    Match.exhaustive,
   );
 
 export { recordPriorCycleCompletion } from "./pipeline-record.js";

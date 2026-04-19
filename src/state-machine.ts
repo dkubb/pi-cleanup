@@ -258,6 +258,78 @@ const transitionFromIdle = (event: TransitionEvent): CleanupState =>
   );
 
 /**
+ * Handle transitions from the `AwaitingUserInput` state.
+ *
+ * Only command events can end the stall; pipeline events are
+ * enumerated explicitly (rather than `Match.orElse`) so a new
+ * `TransitionEvent` variant produces a compile error that forces a
+ * per-event decision.
+ *
+ * @param state - The current AwaitingUserInput state (returned
+ *   unchanged for events that don't end the stall).
+ * @param event - The transition event.
+ * @returns The resulting cleanup state.
+ */
+const transitionFromAwaitingUserInput = (
+  state: CleanupState,
+  event: TransitionEvent,
+): CleanupState =>
+  Match.value(event).pipe(
+    Match.tag("UserResumed", () => CleanupState.Idle()),
+    Match.tag("GatesConfigured", () => CleanupState.Idle()),
+    Match.tag("UserDisabled", () => CleanupState.Disabled()),
+    Match.tag("SessionStarted", () => CleanupState.Idle()),
+    Match.tag("UserEnabled", () => state),
+    Match.tag("GitDirty", () => state),
+    Match.tag("GitClean", () => state),
+    Match.tag("NotARepo", () => state),
+    Match.tag("GateFailed", () => state),
+    Match.tag("GatesPassed", () => state),
+    Match.tag("NoGateConfig", () => state),
+    Match.tag("NeedsFactoring", () => state),
+    Match.tag("FactoringConverged", () => state),
+    Match.tag("Atomic", () => state),
+    Match.tag("NoBase", () => state),
+    Match.tag("Indeterminate", () => state),
+    Match.tag("MaxAttemptsExceeded", () => state),
+    Match.exhaustive,
+  );
+
+/**
+ * Handle transitions from the `Disabled` state.
+ *
+ * Pipeline events are enumerated rather than caught by
+ * `Match.orElse` so a new `TransitionEvent` variant fails to compile
+ * until it is explicitly decided here.
+ *
+ * @param state - The current Disabled state (returned unchanged for
+ *   events that don't re-enable).
+ * @param event - The transition event.
+ * @returns The resulting cleanup state.
+ */
+const transitionFromDisabled = (state: CleanupState, event: TransitionEvent): CleanupState =>
+  Match.value(event).pipe(
+    Match.tag("UserEnabled", () => CleanupState.Idle()),
+    Match.tag("SessionStarted", () => CleanupState.Idle()),
+    Match.tag("UserDisabled", () => state),
+    Match.tag("UserResumed", () => state),
+    Match.tag("GatesConfigured", () => state),
+    Match.tag("GitDirty", () => state),
+    Match.tag("GitClean", () => state),
+    Match.tag("NotARepo", () => state),
+    Match.tag("GateFailed", () => state),
+    Match.tag("GatesPassed", () => state),
+    Match.tag("NoGateConfig", () => state),
+    Match.tag("NeedsFactoring", () => state),
+    Match.tag("FactoringConverged", () => state),
+    Match.tag("Atomic", () => state),
+    Match.tag("NoBase", () => state),
+    Match.tag("Indeterminate", () => state),
+    Match.tag("MaxAttemptsExceeded", () => state),
+    Match.exhaustive,
+  );
+
+/**
  * Pure state transition function for the cleanup state machine.
  *
  * Maps (state, event) → new state. Does not perform side effects.
@@ -279,21 +351,7 @@ export const transition = (state: CleanupState, event: TransitionEvent): Cleanup
     Match.tag("WaitingForFactoring", (s) =>
       transitionFromWaiting({ attempts: s.attempts, event, phase: "WaitingForFactoring", state }),
     ),
-    Match.tag("AwaitingUserInput", () =>
-      Match.value(event).pipe(
-        Match.tag("UserResumed", () => CleanupState.Idle()),
-        Match.tag("GatesConfigured", () => CleanupState.Idle()),
-        Match.tag("UserDisabled", () => CleanupState.Disabled()),
-        Match.tag("SessionStarted", () => CleanupState.Idle()),
-        Match.orElse(() => state),
-      ),
-    ),
-    Match.tag("Disabled", () =>
-      Match.value(event).pipe(
-        Match.tag("UserEnabled", () => CleanupState.Idle()),
-        Match.tag("SessionStarted", () => CleanupState.Idle()),
-        Match.orElse(() => state),
-      ),
-    ),
+    Match.tag("AwaitingUserInput", () => transitionFromAwaitingUserInput(state, event)),
+    Match.tag("Disabled", () => transitionFromDisabled(state, event)),
     Match.exhaustive,
   );
