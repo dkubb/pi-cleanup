@@ -107,6 +107,10 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
 
       if (Either.isRight(headEither)) {
         runtime.lastCleanCommitSHA = Option.some(headEither.right);
+      } else {
+        console.warn(
+          `[pi-cleanup] session_start: failed to parse HEAD SHA (git rev-parse exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
+        );
       }
     }
   });

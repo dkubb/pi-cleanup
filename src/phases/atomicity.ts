@@ -179,7 +179,12 @@ export const checkAtomicity = async (
   const headResult = await exec("git", ["rev-parse", "HEAD"]);
 
   return Either.match(decodeCommitSHA(headResult.stdout.trim()), {
-    onLeft: () => AtomicityResult.Indeterminate(),
+    onLeft: () => {
+      console.warn(
+        `[pi-cleanup] checkAtomicity: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
+      );
+      return AtomicityResult.Indeterminate();
+    },
     onRight: async (headSHA) =>
       Option.match(await resolveBaseSHA(exec, lastCleanSHA), {
         onNone: () => AtomicityResult.NoBase({ headSHA }),

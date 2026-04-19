@@ -29,6 +29,7 @@ import { updateStatus } from "./status.js";
 import {
   AttemptCount as AttemptCountSchema,
   type AttemptCount,
+  type CommitSHA,
   decodeCommitSHA,
   type GateConfig,
 } from "./types.js";
@@ -148,7 +149,14 @@ const recordFactoringIfComplete = async (
   const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
   const headEither = decodeCommitSHA(headResult.stdout.trim());
 
-  if (Either.isLeft(headEither) || String(headEither.right) === priorHeadSHA) {
+  if (Either.isLeft(headEither)) {
+    console.warn(
+      `[pi-cleanup] recordFactoringIfComplete: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
+    );
+    return;
+  }
+
+  if (String(headEither.right) === priorHeadSHA) {
     return;
   }
 
@@ -261,6 +269,33 @@ interface GitPhaseContext {
 }
 
 /**
+ * Read and decode `git rev-parse HEAD`, warning on parse failure.
+ *
+ * Git parse failures previously fell through silently to Indeterminate
+ * / skip paths, hiding configuration or corruption problems. Logging
+ * once per failure site makes the cause visible in extension logs.
+ *
+ * @param pi - The extension API for exec.
+ * @param context - A short tag describing the call site for logs.
+ * @returns The decoded HEAD SHA as an Either.
+ */
+const readHead = async (
+  pi: ExtensionAPI,
+  context: string,
+): Promise<Either.Either<CommitSHA, unknown>> => {
+  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
+  const headEither = decodeCommitSHA(headResult.stdout.trim());
+
+  if (Either.isLeft(headEither)) {
+    console.warn(
+      `[pi-cleanup] ${context}: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
+    );
+  }
+
+  return headEither;
+};
+
+/**
  * Run git-dependent phases: dirty tree + review + atomicity.
  *
  * @param phaseCtx - The git-phase context with the unwrapped gateConfig.
@@ -277,8 +312,7 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
     return true;
   }
 
-  const headResult = await pi.exec("git", ["rev-parse", "HEAD"]);
-  const headEither = decodeCommitSHA(headResult.stdout.trim());
+  const headEither = await readHead(pi, "runGitPhases");
   const baseSHA = await resolveBaseSHA(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
   const commitCount = await getCommitCount(pi, headEither, baseSHA);
 
