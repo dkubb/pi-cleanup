@@ -11,7 +11,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Match, Option, Schema } from "effect";
 
-import { captureCollapseAnchor } from "./pipeline-collapse.js";
+import { captureCollapseAnchor, collapseIfNeeded } from "./pipeline-collapse.js";
 import {
   checkConvergence,
   runAtomicityPhase,
@@ -152,7 +152,7 @@ const runEvalOrComplete = async (
   runtime.cycleComplete = true;
   runtime.mutationDetected = false;
   runtime.cycleActions.push("Verified task completion");
-  pi.sendUserMessage("/cleanup collapse", { deliverAs: "followUp" });
+  await collapseIfNeeded(runtime);
 };
 
 /** Context for the git-dependent phases. */
