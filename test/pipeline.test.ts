@@ -404,6 +404,44 @@ describe("handleAgentEnd", () => {
 
     expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
   });
+
+  it("sends the eval message after factoring convergence (no early return)", async () => {
+    // Regression: when the agent responds to a factoring nudge
+    // without changing HEAD (no factoring needed), checkConvergence
+    // dispatched FactoringConverged but the handler returned early,
+    // skipping runEvalOrComplete. The collapse mechanism then never
+    // fired at the end of the cycle.
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.WaitingForFactoring({
+      attempts: attempt(1),
+      priorHeadSHA: sha1,
+    });
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.mutationDetected = true;
+    runtime.reviewComplete = true;
+    runtime.lastCleanCommitSHA = Option.some(sha1);
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+        if (argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+        if (argStr.includes("rev-list")) {
+          return { code: 0, stderr: "", stdout: "0\n" };
+        }
+        return { code: 0, stderr: "", stdout: "" };
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect(runtime.evalPending).toStrictEqual(true);
+    expect(sendUserMessage).toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

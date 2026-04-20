@@ -259,9 +259,7 @@ export const handleAgentEnd = async (
     return;
   }
 
-  if (await checkConvergence(pi, runtime, ctx)) {
-    return;
-  }
+  await checkConvergence(pi, runtime, ctx);
 
   const gateResult = await runGatePhase(pi, runtime, ctx);
 
