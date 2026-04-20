@@ -5,7 +5,12 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { isGitUnchanged, resolveBaseSHA } from "../src/phases/git-status.js";
 import { getAttempts, handleAgentEnd, recordPriorCycleCompletion } from "../src/pipeline.js";
 import { isCycleInProgress } from "../src/pipeline-skip.js";
-import { getCommitCount, runReviewIfNeeded } from "../src/pipeline-review.js";
+import {
+  getCommitCount,
+  ReviewPhaseOutcome,
+  ReviewSkipReason,
+  runReviewIfNeeded,
+} from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
 import { AttemptCount, AwaitingReason, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
@@ -58,6 +63,36 @@ const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
   };
 };
 
+const installPassingReviewExec = (pi: ExtensionAPI) => {
+  (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+    async (bin: string, args: ReadonlyArray<string>) => {
+      const argStr = args.join(" ");
+
+      if (bin === "bash") {
+        return { code: 0, stderr: "", stdout: "ok" };
+      }
+
+      if (bin === "git" && argStr === "rev-parse --git-dir") {
+        return { code: 0, stderr: "", stdout: ".git\n" };
+      }
+
+      if (bin === "git" && argStr === "status --porcelain=v1") {
+        return { code: 0, stderr: "", stdout: "" };
+      }
+
+      if (bin === "git" && argStr === "rev-parse HEAD") {
+        return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+      }
+
+      if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..${String(sha1)}`) {
+        return { code: 0, stderr: "", stdout: "2\n" };
+      }
+
+      throw new Error(`unexpected exec: ${bin} ${argStr}`);
+    },
+  );
+};
+
 // ---------------------------------------------------------------------------
 // isCycleInProgress
 // ---------------------------------------------------------------------------
@@ -86,49 +121,65 @@ describe("isCycleInProgress", () => {
 // ---------------------------------------------------------------------------
 
 describe("runReviewIfNeeded", () => {
-  it("returns false when review is already complete", () => {
+  it("returns Skipped(AlreadyComplete) when review is already complete", () => {
     const { input, runtime, sendUserMessage } = makeReviewInput();
     runtime.reviewComplete = true;
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(
+      ReviewPhaseOutcome.Skipped({ reason: ReviewSkipReason.AlreadyComplete() }),
+    );
     expect(sendUserMessage).not.toHaveBeenCalled();
   });
 
-  it("returns false when HEAD is invalid", () => {
+  it("returns Skipped(HeadUnavailable) when HEAD is invalid", () => {
     const { input } = makeReviewInput({ headEither: Either.left("invalid") });
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(
+      ReviewPhaseOutcome.Skipped({ reason: ReviewSkipReason.HeadUnavailable() }),
+    );
   });
 
-  it("returns false when base equals head", () => {
+  it("returns Skipped(EmptyRange) when base equals head", () => {
     const { input, sendUserMessage } = makeReviewInput({
       baseSHA: Option.some(sha1),
       headEither: Either.right(sha1),
     });
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(
+      ReviewPhaseOutcome.Skipped({ reason: ReviewSkipReason.EmptyRange() }),
+    );
     expect(sendUserMessage).not.toHaveBeenCalled();
   });
 
-  it("returns false when baseSHA is None", () => {
+  it("returns Skipped(BaseUnavailable) when baseSHA is None", () => {
     const { input } = makeReviewInput({ baseSHA: Option.none() });
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(
+      ReviewPhaseOutcome.Skipped({ reason: ReviewSkipReason.BaseUnavailable() }),
+    );
   });
 
-  it("sends review message and returns true on first call", () => {
+  it("returns Skipped(CommitCountUnavailable) when commitCount is None", () => {
+    const { input } = makeReviewInput({ commitCount: Option.none() });
+
+    expect(runReviewIfNeeded(input)).toStrictEqual(
+      ReviewPhaseOutcome.Skipped({ reason: ReviewSkipReason.CommitCountUnavailable() }),
+    );
+  });
+
+  it("sends review message and returns Requested on first call", () => {
     const { input, runtime, sendUserMessage } = makeReviewInput();
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(true);
+    expect(runReviewIfNeeded(input)).toStrictEqual(ReviewPhaseOutcome.Requested());
     expect(runtime.reviewPending).toStrictEqual(true);
     expect(sendUserMessage).toHaveBeenCalled();
   });
 
-  it("marks review complete and returns false on second call", () => {
+  it("marks review complete and returns Completed on second call", () => {
     const { input, runtime } = makeReviewInput();
     runtime.reviewPending = true;
 
-    expect(runReviewIfNeeded(input)).toStrictEqual(false);
+    expect(runReviewIfNeeded(input)).toStrictEqual(ReviewPhaseOutcome.Completed());
     expect(runtime.reviewComplete).toStrictEqual(true);
     expect(runtime.reviewPending).toStrictEqual(false);
   });
@@ -419,6 +470,64 @@ describe("handleAgentEnd", () => {
     await handleAgentEnd(pi, runtime, ctx);
 
     expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
+  });
+
+  it("returns after requesting review and does not continue to eval", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.mutationDetected = true;
+
+    const { pi, sendUserMessage } = makePi();
+    installPassingReviewExec(pi);
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      evalPending: runtime.evalPending,
+      reviewComplete: runtime.reviewComplete,
+      reviewPending: runtime.reviewPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 0,
+      evalPending: false,
+      reviewComplete: false,
+      reviewPending: true,
+      sendUserMessageCalls: 1,
+    });
+  });
+
+  it("returns after completing review and does not continue to eval", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.reviewPending = true;
+
+    const { pi, sendUserMessage } = makePi();
+    installPassingReviewExec(pi);
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      cycleActions: runtime.cycleActions,
+      evalPending: runtime.evalPending,
+      reviewComplete: runtime.reviewComplete,
+      reviewPending: runtime.reviewPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 0,
+      cycleActions: ["Delegated code review to subagent"],
+      evalPending: false,
+      reviewComplete: true,
+      reviewPending: false,
+      sendUserMessageCalls: 0,
+    });
   });
 
   it("sends the eval message after factoring convergence (no early return)", async () => {

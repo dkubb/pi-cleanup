@@ -210,7 +210,21 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
   const baseSHA = await resolveBaseSHA(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
   const commitCount = await getCommitCount(pi, headEither, baseSHA);
 
-  if (runReviewIfNeeded({ baseSHA, commitCount, headEither, phaseCtx: { ctx, pi, runtime } })) {
+  const reviewOutcome = runReviewIfNeeded({
+    baseSHA,
+    commitCount,
+    headEither,
+    phaseCtx: { ctx, pi, runtime },
+  });
+
+  if (
+    Match.value(reviewOutcome).pipe(
+      Match.tag("Requested", (): true => true),
+      Match.tag("Completed", (): true => true),
+      Match.tag("Skipped", (): false => false),
+      Match.exhaustive,
+    )
+  ) {
     return true;
   }
 

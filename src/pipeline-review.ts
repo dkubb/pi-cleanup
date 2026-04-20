@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Either, Option } from "effect";
+import { Data, Either, Option } from "effect";
 
 import { warn } from "./logger.js";
 import { buildReviewMessage } from "./phases/review.js";
@@ -34,22 +34,75 @@ export interface ReviewInput {
   readonly commitCount: Option.Option<number>;
 }
 
+/** Reasons the review phase may skip work this cycle. */
+export type ReviewSkipReason = Data.TaggedEnum<{
+  readonly AlreadyComplete: {};
+  readonly HeadUnavailable: {};
+  readonly BaseUnavailable: {};
+  readonly CommitCountUnavailable: {};
+  readonly EmptyRange: {};
+}>;
+
+/** Constructor namespace for {@link ReviewSkipReason} variants. */
+export const ReviewSkipReason = Data.taggedEnum<ReviewSkipReason>();
+
+/** Outcome of running the review phase for this cycle. */
+export type ReviewPhaseOutcome = Data.TaggedEnum<{
+  readonly Requested: {};
+  readonly Completed: {};
+  readonly Skipped: { readonly reason: ReviewSkipReason };
+}>;
+
+/** Constructor namespace for {@link ReviewPhaseOutcome} variants. */
+export const ReviewPhaseOutcome = Data.taggedEnum<ReviewPhaseOutcome>();
+
+/** Validated reviewable commit range. */
+interface ReviewableRange {
+  readonly baseSHA: CommitSHA;
+  readonly headSHA: CommitSHA;
+  readonly commitCount: number;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Check if review input represents a valid reviewable range.
+ * Parse review inputs into a validated reviewable range.
  *
- * @param input - The review input to validate.
- * @returns True if the range is valid for review.
+ * @param input - The raw review-phase input.
+ * @returns Right with a validated range, or Left with the exact reason
+ *   the phase should skip this cycle.
  */
-const hasReviewableRange = (input: ReviewInput): boolean =>
-  !input.phaseCtx.runtime.reviewComplete &&
-  Either.isRight(input.headEither) &&
-  Option.isSome(input.baseSHA) &&
-  Option.isSome(input.commitCount) &&
-  String(input.headEither.right) !== String(input.baseSHA.value);
+const getReviewableRange = (
+  input: ReviewInput,
+): Either.Either<ReviewableRange, ReviewSkipReason> => {
+  if (input.phaseCtx.runtime.reviewComplete) {
+    return Either.left(ReviewSkipReason.AlreadyComplete());
+  }
+
+  if (Either.isLeft(input.headEither)) {
+    return Either.left(ReviewSkipReason.HeadUnavailable());
+  }
+
+  if (Option.isNone(input.baseSHA)) {
+    return Either.left(ReviewSkipReason.BaseUnavailable());
+  }
+
+  if (Option.isNone(input.commitCount)) {
+    return Either.left(ReviewSkipReason.CommitCountUnavailable());
+  }
+
+  if (String(input.headEither.right) === String(input.baseSHA.value)) {
+    return Either.left(ReviewSkipReason.EmptyRange());
+  }
+
+  return Either.right({
+    baseSHA: input.baseSHA.value,
+    commitCount: input.commitCount.value,
+    headSHA: input.headEither.right,
+  });
+};
 
 // ---------------------------------------------------------------------------
 // Commit Count
@@ -110,33 +163,35 @@ export const getCommitCount = async (
  * First pass sends review request; second pass marks complete.
  *
  * @param input - The review input.
- * @returns True if the phase needs agent action.
+ * @returns A tagged outcome naming whether review was requested,
+ *   completed, or skipped this cycle.
  */
-export const runReviewIfNeeded = (input: ReviewInput): boolean => {
-  const { phaseCtx, baseSHA, headEither, commitCount } = input;
+export const runReviewIfNeeded = (input: ReviewInput): ReviewPhaseOutcome => {
+  const { phaseCtx } = input;
   const { pi, runtime } = phaseCtx;
-
-  if (!hasReviewableRange(input)) {
-    return false;
-  }
 
   if (runtime.reviewPending) {
     runtime.reviewPending = false;
     runtime.reviewComplete = true;
     runtime.cycleActions.push("Delegated code review to subagent");
 
-    return false;
+    return ReviewPhaseOutcome.Completed();
   }
 
-  // Narrow defensively. HasReviewableRange already proved these are
-  // Some/Right/Some, but the types are the broader Option/Either, so
-  // A future guard edit cannot silently drift past the old casts.
-  if (Option.isNone(baseSHA) || Either.isLeft(headEither) || Option.isNone(commitCount)) {
-    return false;
+  const reviewableRange = getReviewableRange(input);
+
+  if (Either.isLeft(reviewableRange)) {
+    return ReviewPhaseOutcome.Skipped({ reason: reviewableRange.left });
   }
 
   runtime.reviewPending = true;
-  pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right, commitCount.value));
+  pi.sendUserMessage(
+    buildReviewMessage(
+      reviewableRange.right.baseSHA,
+      reviewableRange.right.headSHA,
+      reviewableRange.right.commitCount,
+    ),
+  );
 
-  return true;
+  return ReviewPhaseOutcome.Requested();
 };
