@@ -59,9 +59,6 @@ The project uses [Effect](https://effect.website) for:
 - **`Match`** with **`Match.exhaustive`** for exhaustive pattern
   matching on tagged enums. The compiler rejects unhandled
   variants.
-- **`Match.orElse`** as a catch-all for non-actionable states,
-  avoiding the need to list every pipeline event explicitly for
-  states that ignore them all.
 - **`Either`** as the result type for fallible operations. No
   thrown exceptions for expected failures.
 - **`Option`** for values that may be absent (`lastCleanCommitSHA`,
@@ -169,25 +166,6 @@ const label = Match.type<CleanupState>().pipe(
   Match.exhaustive,
 );
 ```
-
-### Wildcard Matching with `Match.orElse`
-
-For the transition function, non-actionable states (Disabled,
-AwaitingUserInput) ignore most pipeline events. Rather than
-listing every event explicitly, use `Match.orElse` as a catch-all:
-
-```ts
-// Handle specific events, then catch-all for the rest
-const result = Match.value(event).pipe(
-  Match.tag("UserEnabled", () => CleanupState.Idle()),
-  Match.tag("SessionStarted", () => CleanupState.Idle()),
-  Match.orElse(() => state), // All other events: no-op
-);
-```
-
-This avoids the combinatorial explosion of ~6 states × ~15 events.
-Use `Match.exhaustive` where every case matters (like
-`isActionable`), and `Match.orElse` where most cases are no-ops.
 
 ### Phase Result Types
 
@@ -637,10 +615,14 @@ The outer match on `state._tag` uses `Match.exhaustive` (every
 state must be handled). For actionable states (`Idle` and the
 `WaitingFor*` variants), the inner match on `event._tag` also
 uses `Match.exhaustive` — adding a new event without handling
-it here produces a compile error. For non-actionable states
-(`AwaitingUserInput`, `Disabled`), the inner match uses
-`Match.orElse` to return the current state for unhandled
-pipeline events.
+it here produces a compile error. Non-actionable states
+(`AwaitingUserInput`, `Disabled`) also use `Match.exhaustive`.
+Each pipeline event is listed with an explicit no-op branch that
+returns the current state unchanged, so a new `TransitionEvent`
+variant produces a compile error at every state site. The
+alternative — `Match.orElse(() => state)` — would have been
+terser but would let new events slip past silently; the code
+deliberately chose per-site exhaustiveness over brevity.
 
 Events fall into two categories:
 
