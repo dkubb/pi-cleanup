@@ -8,6 +8,9 @@
  * @module
  */
 
+// Keep direct phase imports after deleting the dead pipeline-git barrel.
+// This orchestrator intentionally exceeds the default dependency cap by one.
+/* oxlint-disable import/max-dependencies */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Match, Option, Schema } from "effect";
 
@@ -19,7 +22,8 @@ import {
   runDirtyTreePhase,
   runGatePhase,
 } from "./pipeline-phases.js";
-import { isGitRepo, isGitUnchanged, resolveBaseSHA } from "./pipeline-git.js";
+import { isGitRepo } from "./phases/dirty-tree.js";
+import { isGitUnchanged, resolveBaseSHA } from "./phases/git-status.js";
 import { recordPriorCycleCompletion } from "./pipeline-record.js";
 import { getCommitCount, runReviewIfNeeded } from "./pipeline-review.js";
 import { isCycleInProgress, skipReason } from "./pipeline-skip.js";
