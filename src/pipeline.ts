@@ -220,7 +220,7 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
   if (
     Match.value(reviewOutcome).pipe(
       Match.tag("Requested", (): true => true),
-      Match.tag("Completed", (): true => true),
+      Match.tag("Completed", (): false => false),
       Match.tag("Skipped", (): false => false),
       Match.exhaustive,
     )

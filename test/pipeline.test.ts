@@ -88,6 +88,15 @@ const installPassingReviewExec = (pi: ExtensionAPI) => {
         return { code: 0, stderr: "", stdout: "2\n" };
       }
 
+      // Commands reached by the atomicity phase after review completion.
+      if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..HEAD`) {
+        return { code: 0, stderr: "", stdout: "1\n" };
+      }
+
+      if (bin === "git" && argStr.startsWith("rev-list --reverse ")) {
+        return { code: 0, stderr: "", stdout: `${String(sha1)}\n` };
+      }
+
       throw new Error(`unexpected exec: ${bin} ${argStr}`);
     },
   );
@@ -500,7 +509,7 @@ describe("handleAgentEnd", () => {
     });
   });
 
-  it("returns after completing review and does not continue to eval", async () => {
+  it("continues past completed review into the atomicity and eval phases", async () => {
     const runtime = createInitialRuntimeState();
     const cmd = Either.getOrThrow(decodeGateCommand("just check"));
     runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
@@ -514,19 +523,17 @@ describe("handleAgentEnd", () => {
     await handleAgentEnd(pi, runtime, ctx);
 
     expect({
-      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
       cycleActions: runtime.cycleActions,
       evalPending: runtime.evalPending,
       reviewComplete: runtime.reviewComplete,
       reviewPending: runtime.reviewPending,
       sendUserMessageCalls: sendUserMessage.mock.calls.length,
     }).toStrictEqual({
-      appendEntryCalls: 0,
       cycleActions: ["Delegated code review to subagent"],
-      evalPending: false,
+      evalPending: true,
       reviewComplete: true,
       reviewPending: false,
-      sendUserMessageCalls: 0,
+      sendUserMessageCalls: 1,
     });
   });
 
