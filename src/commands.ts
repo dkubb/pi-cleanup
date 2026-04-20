@@ -5,9 +5,7 @@
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Data, Either, Option } from "effect";
-
 import { collapseIfNeeded } from "./pipeline-collapse.js";
-
 import { persistGateConfig, persistGatesClear } from "./persistence.js";
 import type { RuntimeState } from "./runtime.js";
 import { TransitionEvent, transition } from "./state-machine.js";
@@ -214,6 +212,12 @@ interface CleanupCommandAction {
   readonly event: TransitionEvent;
 }
 
+interface CleanupCommandContextValue {
+  readonly pi: ExtensionAPI;
+  readonly runtime: RuntimeState;
+  readonly ctx: ExtensionCommandContext;
+}
+
 /**
  * Dispatch a cleanup command event and update status.
  *
@@ -226,12 +230,6 @@ const dispatchCleanupCommand = (action: CleanupCommandAction, message: string): 
   action.ctx.ui.notify(message, "info");
 };
 
-/**
- * Handle `/cleanup status` (default).
- *
- * @param runtime - The runtime state.
- * @param ctx - The command context.
- */
 const handleCleanupStatus = (runtime: RuntimeState, ctx: ExtensionCommandContext): void => {
   const gateCount = Option.match(runtime.gateConfig, {
     onNone: () => "none",
@@ -243,19 +241,25 @@ const handleCleanupStatus = (runtime: RuntimeState, ctx: ExtensionCommandContext
     onSome: (sha) => String(sha).slice(0, 8),
   });
 
+  const pluginVersion = Option.getOrElse(runtime.pluginVersion, () => "unknown");
+
   ctx.ui.notify(
-    `State: ${runtime.cleanup._tag}\nGates: ${gateCount}\nLast clean: ${lastSHA}`,
+    `State: ${runtime.cleanup._tag}\nGates: ${gateCount}\nLast clean: ${lastSHA}\nVersion: ${pluginVersion}`,
     "info",
   );
 };
 
-/**
- * Handle `/cleanup reload`.
- * @param ctx - The command context.
- */
-const handleCleanupReload = async (ctx: ExtensionCommandContext): Promise<void> => {
+const handleCleanupReload = async (
+  pi: ExtensionAPI,
+  _runtime: RuntimeState,
+  ctx: ExtensionCommandContext,
+): Promise<void> => {
+  ctx.ui.notify(
+    "Reloading extension. A follow-up /cleanup status will report the loaded version.",
+    "info",
+  );
+  pi.sendUserMessage("/cleanup status", { deliverAs: "followUp" });
   await ctx.reload();
-  ctx.ui.notify("Extension reloaded.", "info");
 };
 
 /**
@@ -325,20 +329,18 @@ export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): v
 /**
  * Handle a `/cleanup` subcommand.
  *
- * @param runtime - The runtime state.
+ * @param action - The cleanup command context.
  * @param trimmed - The trimmed subcommand string.
- * @param ctx - The command context.
  * @returns True when a subcommand was handled.
  */
 const handleCleanupCommand = async (
-  runtime: RuntimeState,
+  action: CleanupCommandContextValue,
   trimmed: string,
-  ctx: ExtensionCommandContext,
 ): Promise<boolean> => {
   switch (trimmed) {
     case "on": {
       dispatchCleanupCommand(
-        { ctx, event: TransitionEvent.UserEnabled(), runtime },
+        { ctx: action.ctx, event: TransitionEvent.UserEnabled(), runtime: action.runtime },
         "Cleanup enabled.",
       );
       return true;
@@ -346,7 +348,7 @@ const handleCleanupCommand = async (
 
     case "off": {
       dispatchCleanupCommand(
-        { ctx, event: TransitionEvent.UserDisabled(), runtime },
+        { ctx: action.ctx, event: TransitionEvent.UserDisabled(), runtime: action.runtime },
         "Cleanup disabled.",
       );
       return true;
@@ -354,19 +356,19 @@ const handleCleanupCommand = async (
 
     case "resume": {
       dispatchCleanupCommand(
-        { ctx, event: TransitionEvent.UserResumed(), runtime },
+        { ctx: action.ctx, event: TransitionEvent.UserResumed(), runtime: action.runtime },
         "Cleanup resumed.",
       );
       return true;
     }
 
     case "reload": {
-      await handleCleanupReload(ctx);
+      await handleCleanupReload(action.pi, action.runtime, action.ctx);
       return true;
     }
 
     case "collapse": {
-      await handleCleanupCollapse(runtime, ctx);
+      await handleCleanupCollapse(action.runtime, action.ctx);
       return true;
     }
 
@@ -388,7 +390,7 @@ export const registerCleanupCommand = (pi: ExtensionAPI, runtime: RuntimeState):
     handler: async (args, ctx) => {
       storeCommandCtx(runtime, ctx);
 
-      if (await handleCleanupCommand(runtime, args.trim(), ctx)) {
+      if (await handleCleanupCommand({ ctx, pi, runtime }, args.trim())) {
         return;
       }
 

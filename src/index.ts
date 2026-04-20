@@ -42,6 +42,7 @@ const resetRuntimeState = (runtime: RuntimeState): void => {
   runtime.cleanup = INITIAL_STATE;
   runtime.gateConfig = Option.none();
   runtime.lastCleanCommitSHA = Option.none();
+  runtime.pluginVersion = Option.none();
   runtime.evalPending = false;
   runtime.cycleComplete = false;
   runtime.cycleActions = [];
@@ -127,6 +128,32 @@ const recaptureCollapseAnchor = (runtime: RuntimeState, ctx: ExtensionContext): 
   captureCollapseAnchor(runtime, ctx);
 };
 
+const capturePluginVersion = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
+  try {
+    const shaResult = await pi.exec("git", ["rev-parse", "--short", "HEAD"]);
+
+    if (shaResult.code === 0) {
+      const trimmed = shaResult.stdout.trim();
+
+      if (trimmed.length > 0) {
+        runtime.pluginVersion = Option.some(trimmed);
+      } else {
+        warn(
+          "session_start",
+          "failed to capture plugin version (git rev-parse returned empty stdout)",
+        );
+      }
+    } else {
+      warn(
+        "session_start",
+        `failed to capture plugin version (git rev-parse exit=${String(shaResult.code)}, stderr="${shaResult.stderr.slice(0, 80)}")`,
+      );
+    }
+  } catch (error) {
+    warn("session_start", `failed to capture plugin version (${String(error)})`);
+  }
+};
+
 // ---------------------------------------------------------------------------
 // Extension Entry Point
 // ---------------------------------------------------------------------------
@@ -144,6 +171,7 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
     restoreFromEntries(runtime, ctx.sessionManager.getEntries());
     runtime.cleanup = transition(runtime.cleanup, TransitionEvent.SessionStarted());
     updateStatus(ctx, runtime.cleanup);
+    await capturePluginVersion(pi, runtime);
 
     if (Option.isNone(runtime.lastCleanCommitSHA)) {
       const result = await pi.exec("git", ["rev-parse", "HEAD"]);

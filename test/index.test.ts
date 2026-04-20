@@ -12,17 +12,32 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either, Option } from "effect";
 
-const { captureCollapseAnchorMock } = vi.hoisted(() => ({
-  captureCollapseAnchorMock: vi.fn((runtime: any, ctx: any) => {
-    if (runtime.collapseAnchorId._tag === "Some") {
-      return;
-    }
+const { captureCollapseAnchorMock, registeredCleanupRuntimes, registeredGatesRuntimes } = vi.hoisted(
+  () => ({
+    captureCollapseAnchorMock: vi.fn((runtime: any, ctx: any) => {
+      if (runtime.collapseAnchorId._tag === "Some") {
+        return;
+      }
 
-    const leafId = ctx.sessionManager.getLeafId();
+      const leafId = ctx.sessionManager.getLeafId();
 
-    if (leafId !== null) {
-      runtime.collapseAnchorId = { _id: "Option", _tag: "Some", value: leafId };
-    }
+      if (leafId !== null) {
+        runtime.collapseAnchorId = { _id: "Option", _tag: "Some", value: leafId };
+      }
+    }),
+    registeredCleanupRuntimes: [] as any[],
+    registeredGatesRuntimes: [] as any[],
+  }),
+);
+
+vi.mock("../src/commands.js", () => ({
+  registerCleanupCommand: vi.fn((pi: any, runtime: any) => {
+    registeredCleanupRuntimes.push(runtime);
+    pi.registerCommand("cleanup", { description: "cleanup", handler: async () => undefined });
+  }),
+  registerGatesCommand: vi.fn((pi: any, runtime: any) => {
+    registeredGatesRuntimes.push(runtime);
+    pi.registerCommand("gates", { description: "gates", handler: async () => undefined });
   }),
 }));
 
@@ -38,6 +53,8 @@ const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
 
 afterEach(() => {
   captureCollapseAnchorMock.mockClear();
+  registeredCleanupRuntimes.length = 0;
+  registeredGatesRuntimes.length = 0;
 });
 
 /** Lightweight harness that captures everything the extension registers. */
@@ -101,18 +118,36 @@ describe("onAgentEnd — extension factory wiring", () => {
 });
 
 describe("onAgentEnd — session_start lifecycle", () => {
-  it("captures current HEAD as initial lastCleanCommitSHA when no persisted entry", async () => {
+  it("captures the plugin version and current HEAD when no persisted entry exists", async () => {
     const { ctx, eventHandlers, exec, pi } = makePi();
-    // git rev-parse HEAD returns sha1 on the initial capture
-    exec.mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" });
+    exec
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "abc1234\n" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" });
     onAgentEnd(pi as unknown as Parameters<typeof onAgentEnd>[0]);
 
     const handler = eventHandlers.get("session_start");
     expect(handler).toBeDefined();
     await handler?.({}, ctx);
 
-    // Extension ran git rev-parse HEAD to capture the base SHA.
-    expect(exec).toHaveBeenCalledWith("git", ["rev-parse", "HEAD"]);
+    expect(exec.mock.calls).toStrictEqual([
+      ["git", ["rev-parse", "--short", "HEAD"]],
+      ["git", ["rev-parse", "HEAD"]],
+    ]);
+    expect(registeredCleanupRuntimes[0]?.pluginVersion).toStrictEqual(Option.some("abc1234"));
+  });
+
+  it("leaves pluginVersion unset when the short HEAD probe fails", async () => {
+    const { ctx, eventHandlers, exec, pi } = makePi();
+    exec
+      .mockResolvedValueOnce({ code: 1, stderr: "fatal: not a git repository", stdout: "" })
+      .mockResolvedValueOnce({ code: 0, stderr: "", stdout: String(sha1) + "\n" });
+    onAgentEnd(pi as unknown as Parameters<typeof onAgentEnd>[0]);
+
+    const handler = eventHandlers.get("session_start");
+    expect(handler).toBeDefined();
+    await handler?.({}, ctx);
+
+    expect(registeredCleanupRuntimes[0]?.pluginVersion).toStrictEqual(Option.none());
   });
 
   it("does not re-probe HEAD when a lastCleanCommitSHA is already persisted", async () => {
@@ -122,12 +157,14 @@ describe("onAgentEnd — session_start lifecycle", () => {
     (ctx.sessionManager.getEntries as ReturnType<typeof vi.fn>).mockReturnValue([
       { customType: "pi-cleanup-commit", data: { sha: String(sha1) }, type: "custom" },
     ]);
+    exec.mockResolvedValueOnce({ code: 0, stderr: "", stdout: "abc1234\n" });
     onAgentEnd(pi as unknown as Parameters<typeof onAgentEnd>[0]);
 
     const handler = eventHandlers.get("session_start");
     await handler?.({}, ctx);
 
-    expect(exec).not.toHaveBeenCalled();
+    expect(exec.mock.calls).toStrictEqual([["git", ["rev-parse", "--short", "HEAD"]]]);
+    expect(registeredCleanupRuntimes[0]?.pluginVersion).toStrictEqual(Option.some("abc1234"));
   });
 });
 

@@ -20,7 +20,12 @@ import {
 import { ENTRY_TYPE_GATES } from "../src/persistence.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
-import { AwaitingReason, decodeAttemptCount, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
+import {
+  AwaitingReason,
+  decodeAttemptCount,
+  decodeCommitSHA,
+  decodeGateCommand,
+} from "../src/types.js";
 
 const decodeGateCommandMock = vi.mocked(decodeGateCommand);
 const defaultDecodeGateCommand = decodeGateCommandMock.getMockImplementation();
@@ -53,6 +58,7 @@ const makeCtx = () => {
 const makePi = () => {
   const appendEntry = vi.fn();
   const commandHandlers = new Map<string, (args: string, ctx: unknown) => void | Promise<void>>();
+  const sendUserMessage = vi.fn();
   const pi = {
     appendEntry,
     registerCommand: (
@@ -64,9 +70,10 @@ const makePi = () => {
     ) => {
       commandHandlers.set(name, spec.handler);
     },
+    sendUserMessage,
   } as unknown as ExtensionAPI;
 
-  return { appendEntry, commandHandlers, pi };
+  return { appendEntry, commandHandlers, pi, sendUserMessage };
 };
 
 const getGateConfig = (runtime: ReturnType<typeof createInitialRuntimeState>) => {
@@ -103,7 +110,7 @@ const invokeGatesCommand = async (
 };
 
 const invokeCleanupCommand = async (args: string, runtime = createInitialRuntimeState()) => {
-  const { appendEntry, commandHandlers, pi } = makePi();
+  const { appendEntry, commandHandlers, pi, sendUserMessage } = makePi();
   const { ctx, navigateTree, notify, reload, setStatus } = makeCtx();
 
   registerCleanupCommand(pi, runtime);
@@ -116,7 +123,7 @@ const invokeCleanupCommand = async (args: string, runtime = createInitialRuntime
 
   await handler(args, ctx);
 
-  return { appendEntry, navigateTree, notify, reload, runtime, setStatus };
+  return { appendEntry, navigateTree, notify, reload, runtime, sendUserMessage, setStatus };
 };
 
 beforeEach(() => {
@@ -170,7 +177,9 @@ describe("parseGateInput", () => {
 
     const result = parseGateInput("bad gate\nnpm run lint");
 
-    expect(result).toStrictEqual(Either.left(ParseGateInputError.InvalidCommand({ raw: "bad gate" })));
+    expect(result).toStrictEqual(
+      Either.left(ParseGateInputError.InvalidCommand({ raw: "bad gate" })),
+    );
   });
 
   it("returns Either.left(InvalidCommand) when a later invalid line trims to empty", () => {
@@ -193,9 +202,8 @@ describe("parseGateInput", () => {
 
 describe("registerGatesCommand", () => {
   it("configures a single command non-interactively", async () => {
-    const { appendEntry, editor, notify, runtime } = await invokeGatesCommand(
-      "configure just check",
-    );
+    const { appendEntry, editor, notify, runtime } =
+      await invokeGatesCommand("configure just check");
 
     expect(editor).not.toHaveBeenCalled();
     expect(getGateConfig(runtime)).toStrictEqual({
@@ -343,7 +351,9 @@ describe("registerGatesCommand", () => {
       description: "Existing config",
     });
     expect(appendEntry).not.toHaveBeenCalled();
-    expect(notify.mock.calls).toStrictEqual([["No commands entered. Gates not changed.", "warning"]]);
+    expect(notify.mock.calls).toStrictEqual([
+      ["No commands entered. Gates not changed.", "warning"],
+    ]);
   });
 
   it("notifies when editor input contains an invalid command", async () => {
@@ -355,9 +365,13 @@ describe("registerGatesCommand", () => {
       return defaultDecodeGateCommand(input);
     });
 
-    const { appendEntry, notify, runtime } = await invokeGatesCommand("", createInitialRuntimeState(), {
-      editorResult: "just check\nbad gate",
-    });
+    const { appendEntry, notify, runtime } = await invokeGatesCommand(
+      "",
+      createInitialRuntimeState(),
+      {
+        editorResult: "just check\nbad gate",
+      },
+    );
 
     expect(Option.isNone(runtime.gateConfig)).toStrictEqual(true);
     expect(appendEntry).not.toHaveBeenCalled();
@@ -382,7 +396,9 @@ describe("registerGatesCommand", () => {
   describe("/gates show", () => {
     it("shows the current configured gates", async () => {
       const runtime = createInitialRuntimeState();
-      runtime.gateConfig = Option.some(Either.getOrThrow(parseGateInput("just check\nnpm run lint")));
+      runtime.gateConfig = Option.some(
+        Either.getOrThrow(parseGateInput("just check\nnpm run lint")),
+      );
 
       const { notify } = await invokeGatesCommand("show", runtime);
 
@@ -448,11 +464,19 @@ describe("/cleanup", () => {
   });
 
   describe("/cleanup reload", () => {
-    it("warm-reloads the extension and notifies the user", async () => {
-      const { notify, reload } = await invokeCleanupCommand("reload");
+    it("queues a follow-up status check and treats reload as terminal", async () => {
+      const { notify, reload, sendUserMessage } = await invokeCleanupCommand("reload");
 
+      expect(notify.mock.calls).toStrictEqual([
+        [
+          "Reloading extension. A follow-up /cleanup status will report the loaded version.",
+          "info",
+        ],
+      ]);
+      expect(sendUserMessage.mock.calls).toStrictEqual([
+        ["/cleanup status", { deliverAs: "followUp" }],
+      ]);
       expect(reload.mock.calls).toStrictEqual([[]]);
-      expect(notify.mock.calls).toStrictEqual([["Extension reloaded.", "info"]]);
     });
   });
 
@@ -480,11 +504,12 @@ describe("/cleanup", () => {
     runtime.cleanup = CleanupState.Disabled();
     runtime.gateConfig = Option.some(Either.getOrThrow(parseGateInput("just check\nnpm run lint")));
     runtime.lastCleanCommitSHA = Option.some(Either.getOrThrow(decodeCommitSHA("a".repeat(40))));
+    runtime.pluginVersion = Option.some("deadbee");
 
     const { notify } = await invokeCleanupCommand("", runtime);
 
     expect(notify.mock.calls[0]).toStrictEqual([
-      "State: Disabled\nGates: 2\nLast clean: aaaaaaaa",
+      "State: Disabled\nGates: 2\nLast clean: aaaaaaaa\nVersion: deadbee",
       "info",
     ]);
   });
@@ -495,7 +520,9 @@ describe("/cleanup", () => {
 
     const { notify } = await invokeCleanupCommand("toString", runtime);
 
-    expect(notify.mock.calls).toStrictEqual([["State: Disabled\nGates: none\nLast clean: none", "info"]]);
+    expect(notify.mock.calls).toStrictEqual([
+      ["State: Disabled\nGates: none\nLast clean: none\nVersion: unknown", "info"],
+    ]);
   });
 
   it("reports missing gate and commit status as none", async () => {
@@ -503,6 +530,9 @@ describe("/cleanup", () => {
 
     const { notify } = await invokeCleanupCommand("", runtime);
 
-    expect(notify.mock.calls[0]).toStrictEqual(["State: Idle\nGates: none\nLast clean: none", "info"]);
+    expect(notify.mock.calls[0]).toStrictEqual([
+      "State: Idle\nGates: none\nLast clean: none\nVersion: unknown",
+      "info",
+    ]);
   });
 });

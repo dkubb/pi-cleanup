@@ -24,6 +24,8 @@ export interface RuntimeState {
   gateConfig: Option.Option<GateConfig>;
   /** Last commit SHA where cleanup completed successfully. */
   lastCleanCommitSHA: Option.Option<CommitSHA>;
+  /** Extension version captured at plugin load time. */
+  pluginVersion: Option.Option<string>;
   /** Whether a completion eval has been sent and is awaiting re-check. */
   evalPending: boolean;
   /** Whether the cleanup cycle completed (reset on next user prompt). */
@@ -57,6 +59,7 @@ export const createInitialRuntimeState = (): RuntimeState => ({
   gateConfig: Option.none(),
   lastCleanCommitSHA: Option.none(),
   mutationDetected: true,
+  pluginVersion: Option.none(),
   reviewComplete: false,
   reviewPending: false,
 });
