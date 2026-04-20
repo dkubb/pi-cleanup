@@ -33,10 +33,12 @@ const makeCtx = () => {
   const editor = vi.fn(async () => undefined);
   const navigateTree = vi.fn(async () => ({ cancelled: false }));
   const notify = vi.fn();
+  const reload = vi.fn(async () => undefined);
   const setStatus = vi.fn();
   const themeFg = vi.fn((_role: string, text: string) => text);
   const ctx = {
     navigateTree,
+    reload,
     ui: {
       editor,
       notify,
@@ -45,7 +47,7 @@ const makeCtx = () => {
     },
   } as unknown as ExtensionCommandContext;
 
-  return { ctx, editor, navigateTree, notify, setStatus };
+  return { ctx, editor, navigateTree, notify, reload, setStatus };
 };
 
 const makePi = () => {
@@ -102,7 +104,7 @@ const invokeGatesCommand = async (
 
 const invokeCleanupCommand = async (args: string, runtime = createInitialRuntimeState()) => {
   const { appendEntry, commandHandlers, pi } = makePi();
-  const { ctx, navigateTree, notify, setStatus } = makeCtx();
+  const { ctx, navigateTree, notify, reload, setStatus } = makeCtx();
 
   registerCleanupCommand(pi, runtime);
 
@@ -114,7 +116,7 @@ const invokeCleanupCommand = async (args: string, runtime = createInitialRuntime
 
   await handler(args, ctx);
 
-  return { appendEntry, navigateTree, notify, runtime, setStatus };
+  return { appendEntry, navigateTree, notify, reload, runtime, setStatus };
 };
 
 beforeEach(() => {
@@ -445,6 +447,15 @@ describe("/cleanup", () => {
     expect(notify.mock.calls).toStrictEqual([["Cleanup resumed.", "info"]]);
   });
 
+  describe("/cleanup reload", () => {
+    it("warm-reloads the extension and notifies the user", async () => {
+      const { notify, reload } = await invokeCleanupCommand("reload");
+
+      expect(reload.mock.calls).toStrictEqual([[]]);
+      expect(notify.mock.calls).toStrictEqual([["Extension reloaded.", "info"]]);
+    });
+  });
+
   it("collapses cleanup context from the stored anchor", async () => {
     const runtime = createInitialRuntimeState();
     runtime.collapseAnchorId = Option.some("anchor-id");
@@ -476,6 +487,15 @@ describe("/cleanup", () => {
       "State: Disabled\nGates: 2\nLast clean: aaaaaaaa",
       "info",
     ]);
+  });
+
+  it("reports cleanup status for unknown subcommands", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.cleanup = CleanupState.Disabled();
+
+    const { notify } = await invokeCleanupCommand("toString", runtime);
+
+    expect(notify.mock.calls).toStrictEqual([["State: Disabled\nGates: none\nLast clean: none", "info"]]);
   });
 
   it("reports missing gate and commit status as none", async () => {

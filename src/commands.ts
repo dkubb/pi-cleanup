@@ -3,7 +3,6 @@
  *
  * @module
  */
-
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import { Data, Either, Option } from "effect";
 
@@ -37,10 +36,6 @@ export type ParseGateInputError = Data.TaggedEnum<{
 
 /** Constructor namespace for {@link ParseGateInputError} variants. */
 export const ParseGateInputError = Data.taggedEnum<ParseGateInputError>();
-
-// ---------------------------------------------------------------------------
-// /gates Subcommands
-// ---------------------------------------------------------------------------
 
 /**
  * Handle `/gates show`.
@@ -212,10 +207,6 @@ const handleGatesConfigure = (action: GatesCommandAction, input: string): void =
   });
 };
 
-// ---------------------------------------------------------------------------
-// /cleanup Subcommands
-// ---------------------------------------------------------------------------
-
 /** Context for dispatching a cleanup command event. */
 interface CleanupCommandAction {
   readonly runtime: RuntimeState;
@@ -259,6 +250,15 @@ const handleCleanupStatus = (runtime: RuntimeState, ctx: ExtensionCommandContext
 };
 
 /**
+ * Handle `/cleanup reload`.
+ * @param ctx - The command context.
+ */
+const handleCleanupReload = async (ctx: ExtensionCommandContext): Promise<void> => {
+  await ctx.reload();
+  ctx.ui.notify("Extension reloaded.", "info");
+};
+
+/**
  * Handle `/cleanup collapse`.
  *
  * Performs the navigateTree collapse using the command context.
@@ -280,16 +280,6 @@ const handleCleanupCollapse = async (
   }
 };
 
-// ---------------------------------------------------------------------------
-// Command Registration
-// ---------------------------------------------------------------------------
-
-/**
- * Register the /gates command.
- *
- * @param pi - The extension API.
- * @param runtime - The runtime state.
- */
 /**
  * Store the command context for navigateTree collapse.
  *
@@ -333,6 +323,60 @@ export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): v
 };
 
 /**
+ * Handle a `/cleanup` subcommand.
+ *
+ * @param runtime - The runtime state.
+ * @param trimmed - The trimmed subcommand string.
+ * @param ctx - The command context.
+ * @returns True when a subcommand was handled.
+ */
+const handleCleanupCommand = async (
+  runtime: RuntimeState,
+  trimmed: string,
+  ctx: ExtensionCommandContext,
+): Promise<boolean> => {
+  switch (trimmed) {
+    case "on": {
+      dispatchCleanupCommand(
+        { ctx, event: TransitionEvent.UserEnabled(), runtime },
+        "Cleanup enabled.",
+      );
+      return true;
+    }
+
+    case "off": {
+      dispatchCleanupCommand(
+        { ctx, event: TransitionEvent.UserDisabled(), runtime },
+        "Cleanup disabled.",
+      );
+      return true;
+    }
+
+    case "resume": {
+      dispatchCleanupCommand(
+        { ctx, event: TransitionEvent.UserResumed(), runtime },
+        "Cleanup resumed.",
+      );
+      return true;
+    }
+
+    case "reload": {
+      await handleCleanupReload(ctx);
+      return true;
+    }
+
+    case "collapse": {
+      await handleCleanupCollapse(runtime, ctx);
+      return true;
+    }
+
+    default: {
+      return false;
+    }
+  }
+};
+
+/**
  * Register the /cleanup command.
  *
  * @param pi - The extension API.
@@ -340,45 +384,14 @@ export const registerGatesCommand = (pi: ExtensionAPI, runtime: RuntimeState): v
  */
 export const registerCleanupCommand = (pi: ExtensionAPI, runtime: RuntimeState): void => {
   pi.registerCommand("cleanup", {
-    description: "Control cleanup extension (on, off, resume, status)",
+    description: "Control cleanup extension (on, off, resume, reload, collapse, status)",
     handler: async (args, ctx) => {
       storeCommandCtx(runtime, ctx);
-      const trimmed = args.trim();
 
-      if (trimmed === "on") {
-        dispatchCleanupCommand(
-          { ctx, event: TransitionEvent.UserEnabled(), runtime },
-          "Cleanup enabled.",
-        );
-
+      if (await handleCleanupCommand(runtime, args.trim(), ctx)) {
         return;
       }
 
-      if (trimmed === "off") {
-        dispatchCleanupCommand(
-          { ctx, event: TransitionEvent.UserDisabled(), runtime },
-          "Cleanup disabled.",
-        );
-
-        return;
-      }
-
-      if (trimmed === "resume") {
-        dispatchCleanupCommand(
-          { ctx, event: TransitionEvent.UserResumed(), runtime },
-          "Cleanup resumed.",
-        );
-
-        return;
-      }
-
-      if (trimmed === "collapse") {
-        await handleCleanupCollapse(runtime, ctx);
-
-        return;
-      }
-
-      // Status (default)
       handleCleanupStatus(runtime, ctx);
     },
   });
