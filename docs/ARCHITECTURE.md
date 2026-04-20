@@ -137,10 +137,10 @@ Reference patterns:
 Regex-first rejection eliminates the old `parseInt(..., 10)`
 radix-ambiguity dance: if the regex never lets an ambiguous
 string through, base-10 parsing is both implicit and
-unambiguous. `CommitCount` currently uses the looser `/^\d+$/`
-pattern — a follow-up should tighten it to
-`/^(0|[1-9]\d*)$/` with regression tests for `007`, `00`, `01`
-rejection.
+unambiguous. `CommitCount` uses `/^(0|[1-9]\d*)$/` so
+leading-zero forms (`00`, `007`, `01`) are rejected at the
+regex boundary while bare `0` is still accepted. Regression
+tests in `test/types.test.ts` pin the three rejection cases.
 
 ### Tagged Enums
 
