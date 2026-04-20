@@ -10,7 +10,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Match, Option } from "effect";
 
-import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import { persistCleanCommit } from "./persistence.js";
 import { buildFactorMessage, checkAtomicity } from "./phases/atomicity.js";
 import { buildDirtyTreeMessage, checkGitStatus } from "./phases/dirty-tree.js";
@@ -108,7 +107,6 @@ export const runGatePhase = async (
   return Match.value(result).pipe(
     Match.tag("Failed", (r): Option.Option<GateConfig> => {
       dispatch(runtime, ctx, TransitionEvent.GateFailed(r));
-      captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildGateFixMessage(r.command, r.output));
 
       return Option.none();
@@ -144,7 +142,6 @@ export const runDirtyTreePhase = async (
   return Match.value(result).pipe(
     Match.tag("Dirty", (r): true => {
       dispatch(runtime, ctx, TransitionEvent.GitDirty(r));
-      captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildDirtyTreeMessage(r.porcelain));
 
       return true;
@@ -206,7 +203,6 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
   return Match.value(result).pipe(
     Match.tag("NeedsFactoring", (r): false => {
       dispatch(runtime, ctx, TransitionEvent.NeedsFactoring(r));
-      captureCollapseAnchor(runtime, ctx);
       pi.sendUserMessage(buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands));
 
       return false;

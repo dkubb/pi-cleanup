@@ -9,13 +9,36 @@
  * handler the extension installed.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { Either } from "effect";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Either, Option } from "effect";
+
+const { captureCollapseAnchorMock } = vi.hoisted(() => ({
+  captureCollapseAnchorMock: vi.fn((runtime: any, ctx: any) => {
+    if (runtime.collapseAnchorId._tag === "Some") {
+      return;
+    }
+
+    const leafId = ctx.sessionManager.getLeafId();
+
+    if (leafId !== null) {
+      runtime.collapseAnchorId = { _id: "Option", _tag: "Some", value: leafId };
+    }
+  }),
+}));
+
+vi.mock("../src/pipeline-collapse.js", () => ({
+  captureCollapseAnchor: captureCollapseAnchorMock,
+  collapseIfNeeded: vi.fn(async () => false),
+}));
 
 import onAgentEnd from "../src/index.js";
 import { decodeCommitSHA } from "../src/types.js";
 
 const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
+
+afterEach(() => {
+  captureCollapseAnchorMock.mockClear();
+});
 
 /** Lightweight harness that captures everything the extension registers. */
 const makePi = () => {
@@ -156,23 +179,70 @@ describe("onAgentEnd — agent_end pipeline entry", () => {
 });
 
 describe("onAgentEnd — input cycle reset", () => {
-  it("user-sourced input clears a completed cycle (allows a fresh one to start)", () => {
-    const { eventHandlers, pi } = makePi();
+  it("user-sourced input resets and recaptures the collapse anchor", () => {
+    const { ctx, eventHandlers, pi } = makePi();
     onAgentEnd(pi as unknown as Parameters<typeof onAgentEnd>[0]);
     const handler = eventHandlers.get("input");
     expect(handler).toBeDefined();
 
-    // Drives the non-extension branch: since cycleComplete starts
-    // false, this is a no-op. Smoke-test that no throws occur.
-    handler?.({ source: "user" }, {});
+    handler?.({ source: "user" }, ctx);
+
+    const firstRuntime = captureCollapseAnchorMock.mock.calls[0]?.[0] as {
+      collapseAnchorId: Option.Option<string>;
+    };
+    expect({
+      collapseAnchorId: firstRuntime.collapseAnchorId,
+    }).toStrictEqual({
+      collapseAnchorId: { _id: "Option", _tag: "Some", value: "leaf-1" },
+    });
+
+    let anchorWasNoneAtCapture = false;
+    captureCollapseAnchorMock.mockImplementationOnce((runtime: any, nextCtx: any) => {
+      anchorWasNoneAtCapture = runtime.collapseAnchorId._tag === "None";
+
+      const leafId = nextCtx.sessionManager.getLeafId();
+
+      if (leafId !== null) {
+        runtime.collapseAnchorId = { _id: "Option", _tag: "Some", value: leafId };
+      }
+    });
+    (ctx.sessionManager.getLeafId as ReturnType<typeof vi.fn>).mockReturnValue("leaf-2");
+
+    handler?.({ source: "user" }, ctx);
+
+    const secondRuntime = captureCollapseAnchorMock.mock.calls[1]?.[0] as {
+      collapseAnchorId: Option.Option<string>;
+    };
+    expect({
+      anchorWasNoneAtCapture,
+      collapseAnchorId: secondRuntime.collapseAnchorId,
+    }).toStrictEqual({
+      anchorWasNoneAtCapture: true,
+      collapseAnchorId: { _id: "Option", _tag: "Some", value: "leaf-2" },
+    });
   });
 
-  it("extension-sourced input does not reset the cycle", () => {
-    const { eventHandlers, pi } = makePi();
+  it("extension-sourced input does not reset or capture the collapse anchor", () => {
+    const { ctx, eventHandlers, pi } = makePi();
     onAgentEnd(pi as unknown as Parameters<typeof onAgentEnd>[0]);
     const handler = eventHandlers.get("input");
+    expect(handler).toBeDefined();
 
-    // Smoke-test that the extension-source branch is taken without error.
-    handler?.({ source: "extension" }, {});
+    handler?.({ source: "user" }, ctx);
+
+    const runtime = captureCollapseAnchorMock.mock.calls[0]?.[0] as {
+      collapseAnchorId: Option.Option<string>;
+    };
+    (ctx.sessionManager.getLeafId as ReturnType<typeof vi.fn>).mockReturnValue("leaf-2");
+
+    handler?.({ source: "extension" }, ctx);
+
+    expect({
+      callCount: captureCollapseAnchorMock.mock.calls.length,
+      collapseAnchorId: runtime.collapseAnchorId,
+    }).toStrictEqual({
+      callCount: 1,
+      collapseAnchorId: { _id: "Option", _tag: "Some", value: "leaf-1" },
+    });
   });
 });

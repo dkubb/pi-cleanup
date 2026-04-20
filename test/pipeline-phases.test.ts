@@ -499,6 +499,33 @@ describe("runAtomicityPhase — cycleActions timing", () => {
 
     expect(runtime.cycleActions).toStrictEqual([]);
   });
+
+  it("dispatches Indeterminate when atomicity cannot parse HEAD", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: "invalid\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runAtomicityPhase({
+      baseSHA: Option.some(sha2),
+      ctx,
+      gateConfig,
+      pi,
+      runtime,
+    });
+
+    expect({
+      result,
+      cleanupState: runtime.cleanup._tag,
+    }).toStrictEqual({
+      result: true,
+      cleanupState: "Idle",
+    });
+  });
 });
 
 

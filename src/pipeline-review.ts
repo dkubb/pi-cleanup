@@ -11,7 +11,6 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Either, Option } from "effect";
 
 import { warn } from "./logger.js";
-import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
 import type { CommitSHA } from "./types.js";
@@ -115,7 +114,7 @@ export const getCommitCount = async (
  */
 export const runReviewIfNeeded = (input: ReviewInput): boolean => {
   const { phaseCtx, baseSHA, headEither, commitCount } = input;
-  const { pi, runtime, ctx } = phaseCtx;
+  const { pi, runtime } = phaseCtx;
 
   if (!hasReviewableRange(input)) {
     return false;
@@ -137,7 +136,6 @@ export const runReviewIfNeeded = (input: ReviewInput): boolean => {
   }
 
   runtime.reviewPending = true;
-  captureCollapseAnchor(runtime, ctx);
   pi.sendUserMessage(buildReviewMessage(baseSHA.value, headEither.right, commitCount.value));
 
   return true;

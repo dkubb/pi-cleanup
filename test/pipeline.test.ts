@@ -133,20 +133,6 @@ describe("runReviewIfNeeded", () => {
     expect(runtime.reviewPending).toStrictEqual(false);
   });
 
-  it("captures collapse anchor on first call", () => {
-    const runtime = createInitialRuntimeState();
-    const { pi } = makePi();
-    const { ctx } = makeCtx("leaf-456");
-
-    runReviewIfNeeded({
-      baseSHA: Option.some(sha2),
-      commitCount: Option.some(1),
-      headEither: Either.right(sha1),
-      phaseCtx: { ctx, pi, runtime },
-    });
-    expect(Option.isSome(runtime.collapseAnchorId)).toStrictEqual(true);
-  });
-
   it("does not record a cycle action on the initial review request", () => {
     const { input, runtime } = makeReviewInput();
 
@@ -379,6 +365,36 @@ describe("handleAgentEnd", () => {
 
     expect(runtime.cycleActions).toStrictEqual([]);
     expect(pi.exec).not.toHaveBeenCalled();
+  });
+
+  it("short-circuits when idle git state is unchanged", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.lastCleanCommitSHA = Option.some(sha1);
+    runtime.mutationDetected = true;
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+        if (argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+        if (argStr === "status --porcelain") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+        return { code: 0, stderr: "", stdout: "" };
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      mutationDetected: runtime.mutationDetected,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      mutationDetected: false,
+      sendUserMessageCalls: 0,
+    });
   });
 
   it("does not short-circuit in WaitingForGateFix when git state is unchanged (flaky gate now passing)", async () => {

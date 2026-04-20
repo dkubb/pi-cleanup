@@ -12,7 +12,7 @@ import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-age
 import { Either, Match, Option, Schema } from "effect";
 
 import { warn } from "./logger.js";
-import { captureCollapseAnchor, collapseIfNeeded } from "./pipeline-collapse.js";
+import { collapseIfNeeded } from "./pipeline-collapse.js";
 import {
   checkConvergence,
   runAtomicityPhase,
@@ -133,16 +133,10 @@ const recordThenCheckMaxAttempts = async (
  *
  * @param pi - The extension API.
  * @param runtime - The mutable runtime state.
- * @param ctx - The extension context.
  */
-const runEvalOrComplete = async (
-  pi: ExtensionAPI,
-  runtime: RuntimeState,
-  ctx: ExtensionContext,
-): Promise<void> => {
+const runEvalOrComplete = async (pi: ExtensionAPI, runtime: RuntimeState): Promise<void> => {
   if (!runtime.evalPending) {
     runtime.evalPending = true;
-    captureCollapseAnchor(runtime, ctx);
     pi.sendUserMessage(EVAL_MESSAGE);
 
     return;
@@ -271,5 +265,5 @@ export const handleAgentEnd = async (
     return;
   }
 
-  await runEvalOrComplete(pi, runtime, ctx);
+  await runEvalOrComplete(pi, runtime);
 };

@@ -8,11 +8,12 @@
  * @module
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
 import { registerCleanupCommand, registerGatesCommand } from "./commands.js";
 import { warn } from "./logger.js";
+import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import { ENTRY_TYPE_COMMIT, ENTRY_TYPE_GATES } from "./persistence.js";
 import { handleAgentEnd } from "./pipeline.js";
 import { restoreCommitSHA, restoreGateConfig } from "./restore.js";
@@ -98,6 +99,34 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
   }
 };
 
+/**
+ * Reset cycle bookkeeping after a completed cleanup run.
+ *
+ * @param runtime - The runtime state to reset.
+ */
+const resetCompletedCycle = (runtime: RuntimeState): void => {
+  if (!runtime.cycleComplete) {
+    return;
+  }
+
+  runtime.cycleComplete = false;
+  runtime.evalPending = false;
+  runtime.reviewPending = false;
+  runtime.reviewComplete = false;
+  runtime.cycleActions = [];
+};
+
+/**
+ * Capture a fresh collapse anchor for a new user-initiated task.
+ *
+ * @param runtime - The runtime state to update.
+ * @param ctx - The extension context for session access.
+ */
+const recaptureCollapseAnchor = (runtime: RuntimeState, ctx: ExtensionContext): void => {
+  runtime.collapseAnchorId = Option.none();
+  captureCollapseAnchor(runtime, ctx);
+};
+
 // ---------------------------------------------------------------------------
 // Extension Entry Point
 // ---------------------------------------------------------------------------
@@ -134,13 +163,10 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
   // Reset the cleanup cycle when a new user-initiated prompt starts.
   // Extension-injected messages (sendUserMessage) have source "extension"
   // And should not reset the cycle.
-  pi.on("input", (event) => {
-    if (event.source !== "extension" && runtime.cycleComplete) {
-      runtime.cycleComplete = false;
-      runtime.evalPending = false;
-      runtime.reviewPending = false;
-      runtime.reviewComplete = false;
-      runtime.cycleActions = [];
+  pi.on("input", (event, ctx) => {
+    if (event.source !== "extension") {
+      recaptureCollapseAnchor(runtime, ctx);
+      resetCompletedCycle(runtime);
     }
   });
 
