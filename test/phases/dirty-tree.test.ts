@@ -131,9 +131,12 @@ describe("buildDirtyTreeMessage", () => {
     expect(msg).toStrictEqual(
       [
         "All quality gates pass. There are uncommitted changes in the working tree.",
-        "Please stage and commit all changes using proper conventional commit format.",
         "",
-        "```",
+        "Please stage and commit each logical change as its own atomic commit using the",
+        "`git conventional-commit` wrapper (not raw `git commit`). Subject <= 70 chars;",
+        "commit body paragraphs wrapped at 72 chars. One conventional type per commit.",
+        "",
+        "```<porcelain>",
         "M foo.ts",
         "?? bar.ts",
         "```",
@@ -147,9 +150,12 @@ describe("buildDirtyTreeMessage", () => {
     expect(msg).toStrictEqual(
       [
         "All quality gates pass. There are uncommitted changes in the working tree.",
-        "Please stage and commit all changes using proper conventional commit format.",
         "",
-        "```",
+        "Please stage and commit each logical change as its own atomic commit using the",
+        "`git conventional-commit` wrapper (not raw `git commit`). Subject <= 70 chars;",
+        "commit body paragraphs wrapped at 72 chars. One conventional type per commit.",
+        "",
+        "```<porcelain>",
         "A new.ts",
         "```",
       ].join("\n"),

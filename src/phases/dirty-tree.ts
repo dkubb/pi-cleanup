@@ -104,16 +104,19 @@ export const checkGitStatus = async (exec: ExecFn): Promise<GitStatusResult> => 
  * ```ts
  * const msg = buildDirtyTreeMessage("M foo.ts\n?? bar.ts");
  * assert(msg.includes("M foo.ts"));
- * assert(msg.includes("```"));
- * assert(msg.includes("commit"));
+ * assert(msg.includes("git conventional-commit"));
+ * assert(msg.includes("72"));
  * ```
  */
 export const buildDirtyTreeMessage = (porcelain: string): string =>
   [
     "All quality gates pass. There are uncommitted changes in the working tree.",
-    "Please stage and commit all changes using proper conventional commit format.",
     "",
-    "```",
+    "Please stage and commit each logical change as its own atomic commit using the",
+    "`git conventional-commit` wrapper (not raw `git commit`). Subject <= 70 chars;",
+    "commit body paragraphs wrapped at 72 chars. One conventional type per commit.",
+    "",
+    "```<porcelain>",
     porcelain,
     "```",
   ].join("\n");
