@@ -11,6 +11,10 @@ check: fmt-check lint typecheck test
 # Fix all auto-fixable issues across all source files
 fix: fmt lint-fix
 
+# Install repo-local git hooks
+install-hooks:
+    git config core.hooksPath scripts/hooks
+
 # Format all source files (write in place)
 fmt:
     oxfmt --write 'src/**/*.ts'

@@ -1,0 +1,40 @@
+#!/bin/sh
+set -eu
+
+message_file=$1
+line_number=0
+subject_seen=0
+
+while IFS= read -r line || [ -n "$line" ]; do
+  line_number=$((line_number + 1))
+
+  case "$line" in
+    \#*)
+      continue
+      ;;
+  esac
+
+  if [ "$subject_seen" -eq 0 ]; then
+    if [ -n "$line" ]; then
+      subject_seen=1
+    fi
+    continue
+  fi
+
+  if [ -z "$line" ]; then
+    continue
+  fi
+
+  line_length=${#line}
+
+  if [ "$line_length" -gt 72 ]; then
+    printf '%s\n' \
+      "commit-msg: line ${line_number} is ${line_length} chars (max 72)." \
+      "Wrap commit body lines to 72 characters." \
+      "Hint: use git conventional-commit to wrap the body for you." \
+      >&2
+    exit 1
+  fi
+done <"$message_file"
+
+exit 0

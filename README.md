@@ -125,6 +125,14 @@ Every commit must pass `just check`. TypeScript is configured at
 maximum strictness; oxlint runs with all six categories at error level
 across seven plugins.
 
+## Git Hooks
+
+Run `just install-hooks` once after cloning to enable the commit-body
+line-length check.
+
+The repo-local `commit-msg` hook rejects any non-subject commit body
+line longer than 72 characters.
+
 ## Dependencies
 
 - `effect` — branded types, tagged enums, exhaustive matching, Either,
