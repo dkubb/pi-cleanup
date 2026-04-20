@@ -159,7 +159,7 @@ export const decodeAttemptCount = Schema.decodeUnknownEither(AttemptCount);
  * ```
  */
 export const CommitCount = Schema.String.pipe(
-  Schema.pattern(/^\d+$/),
+  Schema.pattern(/^(0|[1-9]\d*)$/),
   Schema.parseNumber,
   Schema.int(),
   Schema.nonNegative(),
@@ -172,9 +172,9 @@ export type CommitCount = typeof CommitCount.Type;
 /**
  * Parse an unknown value into a CommitCount.
  *
- * Returns `Right<CommitCount>` for non-negative integer strings,
- * `Left<ParseError>` for negatives, floats, whitespace-padded strings,
- * and non-numeric values.
+ * Returns `Right<CommitCount>` for canonical non-negative integer strings,
+ * `Left<ParseError>` for negatives, floats, leading-zero strings,
+ * whitespace-padded strings, and non-numeric values.
  */
 export const decodeCommitCount: (
   input: unknown,

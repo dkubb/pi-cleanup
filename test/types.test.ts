@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Either, ParseResult, Schema } from "effect";
+import { Either, Schema } from "effect";
 import {
   CommitCount,
   decodeAttemptCount,
@@ -63,42 +63,35 @@ describe("CommitCount", () => {
     expect(decodeCommitCount("42")).toStrictEqual(Either.right(commitCount("42")));
   });
 
-  it("accepts leading-zero strings", () => {
-    expect(decodeCommitCount("007")).toStrictEqual(Either.right(commitCount("007")));
+  it("rejects \"00\"", () => {
+    expect(decodeCommitCount("00")._tag).toStrictEqual("Left");
+  });
+
+  it("rejects \"007\"", () => {
+    expect(decodeCommitCount("007")._tag).toStrictEqual("Left");
+  });
+
+  it("rejects \"01\"", () => {
+    expect(decodeCommitCount("01")._tag).toStrictEqual("Left");
   });
 
   it("rejects \"-1\"", () => {
-    const result = decodeCommitCount("-1");
-
-    expect(result._tag).toStrictEqual("Left");
-    expect(Either.isLeft(result) && ParseResult.isParseError(result.left)).toStrictEqual(true);
+    expect(decodeCommitCount("-1")._tag).toStrictEqual("Left");
   });
 
   it("rejects \"1.5\"", () => {
-    const result = decodeCommitCount("1.5");
-
-    expect(result._tag).toStrictEqual("Left");
-    expect(Either.isLeft(result) && ParseResult.isParseError(result.left)).toStrictEqual(true);
+    expect(decodeCommitCount("1.5")._tag).toStrictEqual("Left");
   });
 
   it("rejects \"abc\"", () => {
-    const result = decodeCommitCount("abc");
-
-    expect(result._tag).toStrictEqual("Left");
-    expect(Either.isLeft(result) && ParseResult.isParseError(result.left)).toStrictEqual(true);
+    expect(decodeCommitCount("abc")._tag).toStrictEqual("Left");
   });
 
   it("rejects an empty string", () => {
-    const result = decodeCommitCount("");
-
-    expect(result._tag).toStrictEqual("Left");
-    expect(Either.isLeft(result) && ParseResult.isParseError(result.left)).toStrictEqual(true);
+    expect(decodeCommitCount("")._tag).toStrictEqual("Left");
   });
 
   it("rejects whitespace-padded strings", () => {
-    const result = decodeCommitCount(" 5 ");
-
-    expect(result._tag).toStrictEqual("Left");
-    expect(Either.isLeft(result) && ParseResult.isParseError(result.left)).toStrictEqual(true);
+    expect(decodeCommitCount(" 5 ")._tag).toStrictEqual("Left");
   });
 });
