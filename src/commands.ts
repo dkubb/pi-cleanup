@@ -5,7 +5,7 @@
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import { Either, Option } from "effect";
+import { Data, Either, Option } from "effect";
 
 import { collapseIfNeeded } from "./pipeline-collapse.js";
 
@@ -24,6 +24,19 @@ interface GatesCommandAction {
   readonly runtime: RuntimeState;
   readonly ctx: ExtensionCommandContext;
 }
+
+/**
+ * Reasons `parseGateInput` may fail to produce a GateConfig.
+ */
+export type ParseGateInputError = Data.TaggedEnum<{
+  /** Input contained no non-blank lines. */
+  readonly Empty: {};
+  /** A line failed GateCommand validation. */
+  readonly InvalidCommand: { readonly raw: string };
+}>;
+
+/** Constructor namespace for {@link ParseGateInputError} variants. */
+export const ParseGateInputError = Data.taggedEnum<ParseGateInputError>();
 
 // ---------------------------------------------------------------------------
 // /gates Subcommands
@@ -82,45 +95,45 @@ const applyGateConfig = (action: GatesCommandAction, config: GateConfig): void =
 };
 
 /**
- * Parse and validate gate commands from editor input.
+ * Parse and validate gate commands from raw input.
  *
- * @param input - The raw editor input.
- * @param ctx - The command context (for error notification).
- * @returns The validated GateConfig, or undefined on validation failure.
+ * Returns a typed error so callers can distinguish empty input from
+ * an invalid command without relying on notification side effects.
+ *
+ * @param input - The raw gate input.
+ * @returns Right(GateConfig) on success; Left(ParseGateInputError)
+ *   naming the specific parse failure.
  */
-export const parseGateInput = (
-  input: string,
-  ctx: ExtensionCommandContext,
-): GateConfig | undefined => {
-  const lines = input.split("\n").filter((line) => line.trim().length > 0);
+export const parseGateInput = (input: string): Either.Either<GateConfig, ParseGateInputError> => {
+  const lines = input.split("\n").map((line) => line.trim());
 
-  if (lines.length === 0) {
-    ctx.ui.notify("No commands entered. Gates not changed.", "warning");
-
-    return undefined;
+  if (lines.every((line) => line.length === 0)) {
+    return Either.left(ParseGateInputError.Empty());
   }
 
-  const commands: GateCommand[] = [];
+  const [firstLine = "", ...restLines] = lines;
+  const firstDecoded = decodeGateCommand(firstLine);
 
-  for (const line of lines) {
-    const decoded = decodeGateCommand(line.trim());
+  if (Either.isLeft(firstDecoded)) {
+    return Either.left(ParseGateInputError.InvalidCommand({ raw: firstLine }));
+  }
+
+  const restCommands: GateCommand[] = [];
+
+  for (const line of restLines) {
+    const decoded = decodeGateCommand(line);
 
     if (Either.isLeft(decoded)) {
-      ctx.ui.notify(`Invalid gate command: "${line.trim()}"`, "error");
-
-      return undefined;
+      return Either.left(ParseGateInputError.InvalidCommand({ raw: line }));
     }
 
-    commands.push(decoded.right);
+    restCommands.push(decoded.right);
   }
 
-  const [first, ...rest] = commands;
-
-  if (first === undefined) {
-    return undefined;
-  }
-
-  return { commands: [first, ...rest], description: "User configured" };
+  return Either.right({
+    commands: [firstDecoded.right, ...restCommands],
+    description: "User configured",
+  });
 };
 
 /**
@@ -146,13 +159,24 @@ const handleGatesEditor = async (
     return;
   }
 
-  const config = parseGateInput(input, ctx);
+  const normalizedInput = input
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .join("\n");
 
-  if (config === undefined) {
-    return;
-  }
+  Either.match(parseGateInput(normalizedInput), {
+    onLeft: (error) => {
+      if (error._tag === "Empty") {
+        ctx.ui.notify("No commands entered. Gates not changed.", "warning");
+        return;
+      }
 
-  applyGateConfig({ ctx, pi, runtime }, config);
+      ctx.ui.notify(`Invalid gate command: "${error.raw}"`, "error");
+    },
+    onRight: (config) => {
+      applyGateConfig({ ctx, pi, runtime }, config);
+    },
+  });
 };
 
 /**
@@ -168,13 +192,24 @@ const handleGatesConfigure = (action: GatesCommandAction, input: string): void =
     return;
   }
 
-  const config = parseGateInput(input, action.ctx);
+  const normalizedInput = input
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .join("\n");
 
-  if (config === undefined) {
-    return;
-  }
+  Either.match(parseGateInput(normalizedInput), {
+    onLeft: (error) => {
+      if (error._tag === "Empty") {
+        action.ctx.ui.notify(GATES_CONFIGURE_USAGE, "warning");
+        return;
+      }
 
-  applyGateConfig(action, config);
+      action.ctx.ui.notify(`Invalid gate command: "${error.raw}"`, "error");
+    },
+    onRight: (config) => {
+      applyGateConfig(action, config);
+    },
+  });
 };
 
 // ---------------------------------------------------------------------------

@@ -11,7 +11,7 @@ vi.mock("../src/types.js", async () => {
   };
 });
 
-import { parseGateInput, registerGatesCommand } from "../src/commands.js";
+import { ParseGateInputError, parseGateInput, registerGatesCommand } from "../src/commands.js";
 import { ENTRY_TYPE_GATES } from "../src/persistence.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
@@ -70,9 +70,17 @@ const getGateConfig = (runtime: ReturnType<typeof createInitialRuntimeState>) =>
   return runtime.gateConfig.value;
 };
 
-const invokeGatesCommand = async (args: string, runtime = createInitialRuntimeState()) => {
+const invokeGatesCommand = async (
+  args: string,
+  runtime = createInitialRuntimeState(),
+  options: { readonly editorResult?: string } = {},
+) => {
   const { appendEntry, commandHandlers, pi } = makePi();
   const { ctx, editor, notify, setStatus } = makeCtx();
+
+  if ("editorResult" in options) {
+    editor.mockResolvedValueOnce(options.editorResult);
+  }
 
   registerGatesCommand(pi, runtime);
 
@@ -93,75 +101,55 @@ beforeEach(() => {
 });
 
 describe("parseGateInput", () => {
-  it("returns undefined for empty input", () => {
-    const { ctx, notify } = makeCtx();
-    const result = parseGateInput("", ctx);
+  it("returns Either.right for a single valid command", () => {
+    const result = parseGateInput("npm test");
 
-    expect(result).toStrictEqual(undefined);
-    expect(notify).toHaveBeenCalledWith("No commands entered. Gates not changed.", "warning");
+    expect(result).toStrictEqual(
+      Either.right({
+        commands: ["npm test"],
+        description: "User configured",
+      }),
+    );
   });
 
-  it("returns undefined for whitespace-only input", () => {
-    const { ctx } = makeCtx();
-    const result = parseGateInput("   \n  \n  ", ctx);
+  it("returns Either.right for multiple valid commands", () => {
+    const result = parseGateInput("npm test\nnpm run lint\nnpm run build");
 
-    expect(result).toStrictEqual(undefined);
+    expect(result).toStrictEqual(
+      Either.right({
+        commands: ["npm test", "npm run lint", "npm run build"],
+        description: "User configured",
+      }),
+    );
   });
 
-  it("parses a single command", () => {
-    const { ctx } = makeCtx();
-    const result = parseGateInput("npm test", ctx);
+  it("returns Either.left(Empty) for empty input", () => {
+    const result = parseGateInput("");
 
-    expect(result).toStrictEqual({
-      commands: ["npm test"],
-      description: "User configured",
-    });
+    expect(result).toStrictEqual(Either.left(ParseGateInputError.Empty()));
   });
 
-  it("parses multiple commands from newlines", () => {
-    const { ctx } = makeCtx();
-    const result = parseGateInput("npm test\nnpm run lint\nnpm run build", ctx);
+  it("returns Either.left(Empty) for whitespace-only input", () => {
+    const result = parseGateInput("   \n  \n  ");
 
-    expect(result).toStrictEqual({
-      commands: ["npm test", "npm run lint", "npm run build"],
-      description: "User configured",
-    });
+    expect(result).toStrictEqual(Either.left(ParseGateInputError.Empty()));
   });
 
-  it("filters out blank lines between commands", () => {
-    const { ctx } = makeCtx();
-    const result = parseGateInput("npm test\n\n\nnpm run lint", ctx);
+  it("returns Either.left(InvalidCommand) when the first invalid line trims to empty", () => {
+    const result = parseGateInput("npm test\n   \nnpm run lint");
 
-    expect(result).toStrictEqual({
-      commands: ["npm test", "npm run lint"],
-      description: "User configured",
-    });
+    expect(result).toStrictEqual(Either.left(ParseGateInputError.InvalidCommand({ raw: "" })));
   });
 
-  it("trims whitespace from commands", () => {
-    const { ctx } = makeCtx();
-    const result = parseGateInput("  npm test  \n  npm run lint  ", ctx);
+  it("trims whitespace from valid commands", () => {
+    const result = parseGateInput("  npm test  \n  npm run lint  ");
 
-    expect(result).toStrictEqual({
-      commands: ["npm test", "npm run lint"],
-      description: "User configured",
-    });
-  });
-
-  it("returns undefined and notifies for an invalid command", () => {
-    const { ctx, notify } = makeCtx();
-    decodeGateCommandMock.mockImplementation((input) => {
-      if (input === "bad gate") {
-        return Either.left("invalid" as never);
-      }
-
-      return defaultDecodeGateCommand(input);
-    });
-
-    const result = parseGateInput("npm test\nbad gate", ctx);
-
-    expect(result).toStrictEqual(undefined);
-    expect(notify).toHaveBeenCalledWith('Invalid gate command: "bad gate"', "error");
+    expect(result).toStrictEqual(
+      Either.right({
+        commands: ["npm test", "npm run lint"],
+        description: "User configured",
+      }),
+    );
   });
 });
 
@@ -200,6 +188,21 @@ describe("registerGatesCommand", () => {
     expect(notify).toHaveBeenCalledWith("Gates configured: 2 commands.", "info");
   });
 
+  it("preserves configure behavior by ignoring blank lines between commands", async () => {
+    const { appendEntry, runtime } = await invokeGatesCommand(
+      "configure just check\n\nnpm run lint",
+    );
+
+    expect(getGateConfig(runtime)).toStrictEqual({
+      commands: ["just check", "npm run lint"],
+      description: "User configured",
+    });
+    expect(appendEntry).toHaveBeenCalledWith(ENTRY_TYPE_GATES, {
+      commands: ["just check", "npm run lint"],
+      description: "User configured",
+    });
+  });
+
   it("shows a usage hint for configure with empty args", async () => {
     const runtime = createInitialRuntimeState();
     runtime.gateConfig = Option.some({
@@ -215,10 +218,12 @@ describe("registerGatesCommand", () => {
       description: "Existing config",
     });
     expect(appendEntry).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith(
-      "Usage: /gates configure <command>\nProvide one command per line for multiple gates.",
-      "warning",
-    );
+    expect(notify.mock.calls).toStrictEqual([
+      [
+        "Usage: /gates configure <command>\nProvide one command per line for multiple gates.",
+        "warning",
+      ],
+    ]);
   });
 
   it("leaves existing gates unchanged when configure validation fails", async () => {
@@ -246,7 +251,42 @@ describe("registerGatesCommand", () => {
       description: "Existing config",
     });
     expect(appendEntry).not.toHaveBeenCalled();
-    expect(notify).toHaveBeenCalledWith('Invalid gate command: "bad gate"', "error");
+    expect(notify.mock.calls).toStrictEqual([[`Invalid gate command: "bad gate"`, "error"]]);
+  });
+
+  it("notifies when the editor input is empty", async () => {
+    const runtime = createInitialRuntimeState();
+    runtime.gateConfig = Option.some({
+      commands: ["just check"],
+      description: "Existing config",
+    } as const);
+
+    const { appendEntry, notify } = await invokeGatesCommand("", runtime, { editorResult: "" });
+
+    expect(getGateConfig(runtime)).toStrictEqual({
+      commands: ["just check"],
+      description: "Existing config",
+    });
+    expect(appendEntry).not.toHaveBeenCalled();
+    expect(notify.mock.calls).toStrictEqual([["No commands entered. Gates not changed.", "warning"]]);
+  });
+
+  it("notifies when editor input contains an invalid command", async () => {
+    decodeGateCommandMock.mockImplementation((input) => {
+      if (input === "bad gate") {
+        return Either.left("invalid" as never);
+      }
+
+      return defaultDecodeGateCommand(input);
+    });
+
+    const { appendEntry, notify, runtime } = await invokeGatesCommand("", createInitialRuntimeState(), {
+      editorResult: "just check\nbad gate",
+    });
+
+    expect(Option.isNone(runtime.gateConfig)).toStrictEqual(true);
+    expect(appendEntry).not.toHaveBeenCalled();
+    expect(notify.mock.calls).toStrictEqual([[`Invalid gate command: "bad gate"`, "error"]]);
   });
 
   it("transitions AwaitingUserInput to Idle after successful configure", async () => {
