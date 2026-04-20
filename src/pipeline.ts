@@ -33,6 +33,7 @@ import { updateStatus } from "./status.js";
 import {
   AttemptCount as AttemptCountSchema,
   type AttemptCount,
+  type CommitCount,
   type CommitSHA,
   decodeCommitSHA,
   type GateConfig,
@@ -217,7 +218,7 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
 
   const headEither = await readHead(pi, "runGitPhases");
   const baseSHA = await resolveBaseSHA(pi.exec.bind(pi), runtime.lastCleanCommitSHA);
-  const commitCount = await getCommitCount(pi, headEither, baseSHA);
+  const commitCount: Option.Option<CommitCount> = await getCommitCount(pi, headEither, baseSHA);
 
   const reviewOutcome = runReviewIfNeeded({
     baseSHA,

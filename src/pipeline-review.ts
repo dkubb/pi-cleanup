@@ -13,7 +13,7 @@ import { Data, Either, Option } from "effect";
 import { warn } from "./logger.js";
 import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
-import type { CommitSHA } from "./types.js";
+import { decodeCommitCount, type CommitCount, type CommitSHA } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,7 +31,7 @@ export interface ReviewInput {
   readonly phaseCtx: ReviewPhaseContext;
   readonly headEither: Either.Either<CommitSHA, unknown>;
   readonly baseSHA: Option.Option<CommitSHA>;
-  readonly commitCount: Option.Option<number>;
+  readonly commitCount: Option.Option<CommitCount>;
 }
 
 /** Reasons the review phase may skip work this cycle. */
@@ -60,7 +60,7 @@ export const ReviewPhaseOutcome = Data.taggedEnum<ReviewPhaseOutcome>();
 interface ReviewableRange {
   readonly baseSHA: CommitSHA;
   readonly headSHA: CommitSHA;
-  readonly commitCount: number;
+  readonly commitCount: CommitCount;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +129,7 @@ export const getCommitCount = async (
   pi: ExtensionAPI,
   headEither: Either.Either<CommitSHA, unknown>,
   baseSHA: Option.Option<CommitSHA>,
-): Promise<Option.Option<number>> => {
+): Promise<Option.Option<CommitCount>> => {
   if (!Either.isRight(headEither) || Option.isNone(baseSHA)) {
     return Option.none();
   }
@@ -140,9 +140,9 @@ export const getCommitCount = async (
     `${String(baseSHA.value)}..${String(headEither.right)}`,
   ]);
 
-  const count = Number.parseInt(result.stdout.trim(), 10);
+  const countEither = decodeCommitCount(result.stdout.trim());
 
-  if (Number.isNaN(count)) {
+  if (Either.isLeft(countEither)) {
     warn(
       "getCommitCount",
       `failed to parse rev-list count (exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
@@ -150,7 +150,7 @@ export const getCommitCount = async (
     return Option.none();
   }
 
-  return Option.some(count);
+  return Option.some(countEither.right);
 };
 
 // ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ export const runReviewIfNeeded = (input: ReviewInput): ReviewPhaseOutcome => {
     buildReviewMessage(
       reviewableRange.right.baseSHA,
       reviewableRange.right.headSHA,
-      reviewableRange.right.commitCount,
+      Number(reviewableRange.right.commitCount),
     ),
   );
 

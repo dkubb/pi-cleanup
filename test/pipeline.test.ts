@@ -13,7 +13,13 @@ import {
 } from "../src/pipeline-review.js";
 import { createInitialRuntimeState } from "../src/runtime.js";
 import { CleanupState } from "../src/state-machine.js";
-import { AttemptCount, AwaitingReason, decodeCommitSHA, decodeGateCommand } from "../src/types.js";
+import {
+  AttemptCount,
+  AwaitingReason,
+  CommitCount,
+  decodeCommitSHA,
+  decodeGateCommand,
+} from "../src/types.js";
 import { Schema } from "effect";
 
 const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
@@ -45,6 +51,9 @@ const makePi = () => {
   };
 };
 
+const commitCount = (n: number): typeof CommitCount.Type =>
+  Schema.decodeUnknownSync(CommitCount)(String(n));
+
 const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
   const runtime = createInitialRuntimeState();
   const { pi, sendUserMessage } = makePi();
@@ -53,7 +62,7 @@ const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
   return {
     input: {
       baseSHA: Option.some(sha2),
-      commitCount: Option.some(3),
+      commitCount: Option.some(commitCount(3)),
       headEither: Either.right(sha1),
       phaseCtx: { ctx, pi, runtime },
       ...overrides,
@@ -1004,7 +1013,7 @@ describe("getCommitCount", () => {
       stdout: "5\n",
     });
     const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
-    expect(result).toStrictEqual(Option.some(5));
+    expect(result).toStrictEqual(Option.some(commitCount(5)));
   });
 
   it("returns None when rev-list output is not a number (no longer coerces to 0)", async () => {
@@ -1079,7 +1088,8 @@ describe("isGitUnchanged", () => {
   });
 
   it("returns false when HEAD matches but tree is dirty", async () => {
-    const exec = vi.fn()
+    const exec = vi
+      .fn()
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "M foo.ts\n" });
 
@@ -1087,7 +1097,8 @@ describe("isGitUnchanged", () => {
   });
 
   it("returns true when HEAD matches and tree is clean", async () => {
-    const exec = vi.fn()
+    const exec = vi
+      .fn()
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: "" });
 
@@ -1095,7 +1106,8 @@ describe("isGitUnchanged", () => {
   });
 
   it("returns false when HEAD matches but git status exits non-zero", async () => {
-    const exec = vi.fn()
+    const exec = vi
+      .fn()
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: sha1 + "\n" })
       .mockResolvedValueOnce({ code: 128, stderr: "fatal: not a repo", stdout: "" });
 
