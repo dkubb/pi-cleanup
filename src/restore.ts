@@ -114,13 +114,15 @@ const resolveDescription = (value: unknown): string => {
  * Check that `data` is a non-null, non-array plain object.
  *
  * @param data - The raw entry data to validate.
+ * @param onNotARecord - Builds the caller-specific error for non-record data.
  * @returns Right(record) if data is a record; Left(NotARecord) otherwise.
  */
-const asRecord = (
+const asRecord = <E>(
   data: unknown,
-): Either.Either<Record<string, unknown>, GateConfigRestoreError> => {
+  onNotARecord: () => E,
+): Either.Either<Record<string, unknown>, E> => {
   if (data === null || typeof data !== "object" || Array.isArray(data)) {
-    return Either.left(GateConfigRestoreError.NotARecord());
+    return Either.left(onNotARecord());
   }
   return Either.right(data as Record<string, unknown>);
 };
@@ -180,7 +182,7 @@ const buildGateConfig = (
 export const restoreGateConfig = (
   data: unknown,
 ): Either.Either<GateConfig, GateConfigRestoreError> => {
-  const recordResult = asRecord(data);
+  const recordResult = asRecord(data, () => GateConfigRestoreError.NotARecord());
 
   if (Either.isLeft(recordResult)) {
     return Either.left(recordResult.left);
@@ -218,21 +220,22 @@ export const restoreGateConfig = (
  * @returns Right(CommitSHA) on success; Left(CommitSHARestoreError)
  *   naming the specific failure mode.
  */
-export const restoreCommitSHA = (
-  data: unknown,
-): Either.Either<CommitSHA, CommitSHARestoreError> => {
-  const record = data as Record<string, unknown> | undefined;
-  const sha = record?.["sha"];
+export const restoreCommitSHA = (data: unknown): Either.Either<CommitSHA, CommitSHARestoreError> =>
+  Either.flatMap(
+    asRecord<CommitSHARestoreError>(data, () => CommitSHARestoreError.NotAString()),
+    (record): Either.Either<CommitSHA, CommitSHARestoreError> => {
+      const { sha } = record;
 
-  if (typeof sha !== "string") {
-    return Either.left(CommitSHARestoreError.NotAString());
-  }
+      if (typeof sha !== "string") {
+        return Either.left(CommitSHARestoreError.NotAString());
+      }
 
-  const decoded = decodeCommitSHA(sha);
+      const decoded = decodeCommitSHA(sha);
 
-  if (Either.isLeft(decoded)) {
-    return Either.left(CommitSHARestoreError.InvalidSHA({ raw: sha }));
-  }
+      if (Either.isLeft(decoded)) {
+        return Either.left(CommitSHARestoreError.InvalidSHA({ raw: sha }));
+      }
 
-  return Either.right(decoded.right);
-};
+      return Either.right(decoded.right);
+    },
+  );
