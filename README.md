@@ -4,8 +4,8 @@
 that hooks into the `agent_end` event to ensure the repository stays
 clean and well-structured after each agent interaction. It commits
 uncommitted work, runs user-configured quality gates, verifies commits
-are atomic, and wraps the cleanup in a boomerang anchor/collapse to
-minimize token cost.
+are atomic, and collapses the session tree after cleanup to minimize
+token cost.
 
 ## What It Does
 
@@ -15,12 +15,13 @@ After every completed agent run, this extension executes a pipeline:
    (formatter, linter, tests). On failure, sends the agent a fix
    message.
 2. **Dirty tree phase** — detects uncommitted changes via `git status
-   --porcelain` and asks the agent to commit them.
+   --porcelain=v1` and asks the agent to commit them.
 3. **Review phase** — inspects new commits since the last clean SHA and
-   asks the agent to correct any issues.
+   asks the agent to delegate a holistic code review to a subagent.
 4. **Atomicity phase** — compares HEAD against the session base SHA (or
-   merge-base with `main`/`master`/`develop`) and asks the agent to
-   factor non-atomic commits.
+   merge-base with `main`/`master`/`develop`, then the git empty-tree
+   SHA for freshly initialized repos) and asks the agent to factor
+   non-atomic commits.
 5. **Eval phase** — prompts the agent to verify that the original task
    is actually complete before finishing.
 6. **Collapse** — navigates the session tree back to the anchor,
@@ -39,8 +40,7 @@ agent loop fully drains. This keeps cleanup work from interleaving with
 in-flight tool calls.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full design,
-including the state machine specification and the boomerang integration
-details.
+including the state machine specification and the collapse design.
 
 ## State Machine
 
@@ -60,13 +60,24 @@ The extension registers two slash commands:
 
 - `/gates` — open an editor to configure one gate command per line.
   Subcommands: `/gates show` lists the current config, `/gates clear`
-  removes it.
+  removes it, and `/gates configure <commands>` applies a
+  non-interactive configuration that bypasses the editor. This is
+  useful for RPC drivers and headless automation: use a single line
+  like `/gates configure just check` or embed newlines and provide one
+  command per line.
 - `/cleanup` — control the extension lifecycle. Subcommands: `on`,
-  `off`, `resume` (clears `AwaitingUserInput`), `status` (default), and
-  `collapse` (used internally by the pipeline).
+  `off`, `resume` (clears `AwaitingUserInput`), `reload` (warm-reload
+  the extension from disk, preserving conversation history; queues a
+  follow-up `/cleanup status` that reports the freshly-loaded version),
+  `status` (default), and `collapse` (manual user invocation; the
+  pipeline calls `collapseIfNeeded` directly).
 
 Gate configuration is persisted via `pi.appendEntry` and restored on
 `session_start`.
+
+`/cleanup status` also reports `Version: <short-sha>`, captured from
+the plugin's git HEAD at load time. That makes a live reload visible
+and distinguishes a freshly loaded extension from a stale one.
 
 ## Project Layout
 
@@ -74,9 +85,13 @@ Gate configuration is persisted via `pi.appendEntry` and restored on
 src/
 ├── index.ts              # Extension entry, event wiring
 ├── commands.ts           # /gates and /cleanup handlers
+├── logger.ts             # warn(context, message) helper for [pi-cleanup]
 ├── pipeline.ts           # Top-level agent_end orchestration
+├── pipeline-collapse.ts  # Anchor capture + collapseIfNeeded
 ├── pipeline-phases.ts    # Phase runners (gate, dirty tree, atomicity)
+├── pipeline-record.ts    # recordPriorCycleCompletion observation
 ├── pipeline-review.ts    # Commit review phase
+├── pipeline-skip.ts      # SkipReason + isCycleInProgress
 ├── state-machine.ts      # CleanupState, TransitionEvent, transition()
 ├── types.ts              # Branded primitives via Effect Schema
 ├── runtime.ts            # Mutable runtime state shape
@@ -87,9 +102,15 @@ src/
     ├── dirty-tree.ts     # Dirty tree detection + fix message
     ├── gates.ts          # Gate execution + fix message
     ├── atomicity.ts      # Atomicity check + factor message
-    ├── git-status.ts     # Base SHA resolution and mutation detection
+    ├── git-status.ts     # Git-unchanged check + base SHA resolution
     └── review.ts         # Review prompt construction
-test/                     # Vitest unit tests mirroring src/
+scripts/
+└── hooks/
+    └── commit-msg        # Repo-local commit validator
+test/
+├── hooks/
+│   └── commit-msg.test.ts # commit-msg hook tests
+└── ...                   # Vitest unit tests mirroring src/
 ```
 
 ## Design Choices
@@ -113,13 +134,16 @@ test/                     # Vitest unit tests mirroring src/
 The project uses [just](https://github.com/casey/just) as the task
 runner.
 
-```text
-just check    # oxfmt + rumdl + oxlint + mermaid validation + tsc + vitest
-just fix      # oxfmt + rumdl fmt + oxlint --fix
-just test     # vitest run with coverage
-just fmt      # format src and markdown in place
-just typecheck # tsc --noEmit
-```
+- `just check` — runs `fmt-check`, `lint`, `typecheck`, and `test`
+- `just fix` — runs `fmt` and `lint-fix`
+- `just install-hooks` — wires `core.hooksPath` to `scripts/hooks`
+- `just fmt` — formats `src/**/*.ts` and `*.md` in place
+- `just fmt-check` — checks formatting for `src/**/*.ts` and `*.md`
+- `just lint` — runs `oxlint --deny-warnings 'src/'`
+- `just lint-fix` — runs `oxlint --fix --fix-suggestions 'src/'`
+- `just test` — runs `vitest --coverage` and stages any
+  `vitest.config.ts` writeback
+- `just typecheck` — runs `tsc --noEmit`
 
 Every commit must pass `just check`. TypeScript is configured at
 maximum strictness; oxlint runs with all six categories at error level
@@ -127,11 +151,20 @@ across seven plugins.
 
 ## Git Hooks
 
-Run `just install-hooks` once after cloning to enable the commit-body
-line-length check.
+Run `just install-hooks` once after cloning to point `core.hooksPath`
+at `scripts/hooks`.
 
-The repo-local `commit-msg` hook rejects any non-subject commit body
-line longer than 72 characters.
+The repo-local `commit-msg` hook validates both the subject and body:
+
+- the subject must use an allowed conventional type (`feat`, `fix`,
+  `docs`, `style`, `refactor`, `perf`, `test`, `build`, `chore`,
+  `ci`, `revert`), with an optional well-formed scope, a 70-character
+  maximum, a lowercase description, no trailing period, and no
+  ` and ` or ` or ` connective wording
+- non-subject body lines must wrap at 72 characters
+
+Autosquash subjects (`fixup!`, `squash!`, `amend!` followed by a space)
+bypass subject validation; body-line length is still enforced.
 
 ## Dependencies
 
@@ -153,4 +186,4 @@ must be available to the agent running cleanup.
 ## Related Documents
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — design decisions, type
-  system patterns, state machine specification, boomerang integration.
+  system patterns, state machine specification, collapse design.
