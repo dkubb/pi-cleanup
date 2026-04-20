@@ -26,7 +26,7 @@ import { decodeCommitSHA } from "./types.js";
 // ---------------------------------------------------------------------------
 
 /** Tool names that may mutate files and should trigger a cleanup cycle. */
-const MUTATION_TOOLS = new Set(["bash", "edit", "write"]);
+const FILE_MUTATING_TOOLS = new Set(["bash", "edit", "write"]);
 
 // ---------------------------------------------------------------------------
 // Session Restoration Helpers
@@ -145,7 +145,7 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_call", (event) => {
-    if (MUTATION_TOOLS.has(event.toolName)) {
+    if (FILE_MUTATING_TOOLS.has(event.toolName)) {
       runtime.mutationDetected = true;
     }
   });
