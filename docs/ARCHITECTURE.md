@@ -400,17 +400,30 @@ The extension registers two slash-command families.
 - `/cleanup collapse` — manual collapse trigger; calls
   `collapseIfNeeded`. Rarely needed — the pipeline runs this
   automatically at end-of-cycle.
-- `/cleanup reload` — warm-reload the extension. Calls
-  `ctx.reload()` which invokes `AgentSession.reload()`: re-runs
-  the extension files from disk, fires `session_shutdown` then
-  `session_start` with `reason: "reload"`, preserves the
-  conversation tree, re-initializes the runtime via
-  `resetRuntimeState` (which re-captures `pluginVersion` from
-  the current HEAD). The handler notifies `Reloading extension.
-  A follow-up /cleanup status will report the loaded version.`
-  — the notify string lives in pre-reload code, so it cannot
-  announce the post-reload version itself; `/cleanup status` is
-  the source of truth for what is currently live.
+- `/cleanup reload` — warm-reload the extension.
+  - The handler notifies `Reloading extension. A follow-up
+    /cleanup status will report the loaded version.`, queues
+    `pi.sendUserMessage("/cleanup status", { deliverAs:
+    "followUp" })`, then awaits `ctx.reload()`.
+  - `AgentSession.reload()` re-runs the extension files from
+    disk, fires `session_shutdown` then `session_start` with
+    `reason: "reload"`, and preserves the conversation tree.
+  - It re-initializes the runtime via `resetRuntimeState`,
+    which clears `pluginVersion` to `None` along with the other
+    runtime fields.
+  - After that reset, the `session_start` handler runs
+    `capturePluginVersion` to populate `pluginVersion` from a
+    fresh `git rev-parse --short HEAD`.
+  - After reload completes, pi processes the follow-up queue;
+    the queued `/cleanup status` runs under the post-reload
+    code and reports the freshly captured `pluginVersion` to
+    the user automatically.
+  - This is the one place the extension still dispatches
+    slash-like text through `sendUserMessage`. It works because
+    pi drains the follow-up queue through the command-dispatch
+    path rather than through `prompt()` with
+    `expandPromptTemplates: false`; if that internal routing
+    changes, the post-reload status announcement stops working.
 
 ## State Machine
 
