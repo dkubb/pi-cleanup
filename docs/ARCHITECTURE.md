@@ -929,6 +929,12 @@ The hook enforces:
   ` or ` connective words.
 - Body: every non-comment, non-blank line ≤ 72 characters.
 
+Subjects prefixed with `fixup!`, `squash!`, or `amend!`
+followed by a space bypass subject validation entirely so
+`--fixup` / `--squash` / `--amend` workflows are not blocked by
+the target commit's original subject shape. Body-line length is
+still enforced on autosquash commits.
+
 Motivation: `git conventional-commit` enforces these rules when
 invoked via `--action`, but automated agents frequently use raw
 `git commit -m "multi-paragraph body"` which bypasses the
