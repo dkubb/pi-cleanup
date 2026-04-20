@@ -9,6 +9,22 @@
 
 import type { CommitCount, CommitSHA } from "../types.js";
 
+/**
+ * Format a human-readable commit count label.
+ *
+ * @param count - Number of commits.
+ * @returns Formatted label.
+ */
+const formatCommitLabel = (count: CommitCount): string => {
+  const countText = String(count);
+
+  if (count === 1) {
+    return `${countText} commit`;
+  }
+
+  return `${countText} commits`;
+};
+
 // ---------------------------------------------------------------------------
 // Review Message
 // ---------------------------------------------------------------------------
@@ -27,7 +43,7 @@ import type { CommitCount, CommitSHA } from "../types.js";
 export const buildReviewCommand = (
   baseSHA: CommitSHA,
   headSHA: CommitSHA,
-  commitCount: number,
+  commitCount: CommitCount,
 ): string => {
   if (commitCount === 1) {
     return `git --no-pager show ${String(headSHA)}`;
@@ -53,13 +69,7 @@ export const buildReviewMessage = (
   headSHA: CommitSHA,
   commitCount: CommitCount,
 ): string => {
-  const commitCountText = String(commitCount);
-  let commitLabel = `${commitCountText} commits`;
-
-  if (commitCount === 1) {
-    commitLabel = `${commitCountText} commit`;
-  }
-
+  const commitLabel = formatCommitLabel(commitCount);
   const reviewCmd = buildReviewCommand(baseSHA, headSHA, commitCount);
 
   return [

@@ -11,13 +11,15 @@ const commitCount = (n: number): typeof CommitCount.Type =>
 
 describe("buildReviewCommand", () => {
   it("uses git show for a single commit", () => {
-    const cmd = buildReviewCommand(sha1, sha2, 1);
+    const cmd = buildReviewCommand(sha1, sha2, commitCount(1));
     expect(cmd).toStrictEqual(`git --no-pager show ${"b".repeat(40)}`);
   });
 
   it("uses git log --patch for multiple commits", () => {
-    const cmd = buildReviewCommand(sha1, sha2, 3);
-    expect(cmd).toStrictEqual(`git --no-pager log --patch ${"a".repeat(40)}..${"b".repeat(40)}`);
+    const cmd = buildReviewCommand(sha1, sha2, commitCount(3));
+    expect(cmd).toStrictEqual(
+      `git --no-pager log --patch ${"a".repeat(40)}..${"b".repeat(40)}`,
+    );
   });
 });
 
