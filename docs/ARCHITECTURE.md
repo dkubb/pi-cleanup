@@ -899,7 +899,8 @@ Quality gates for this project: `just check` — oxfmt-check on
 `src/**/*.ts`, rumdl check on repo-root `*.md` only, oxlint on
 `src/`, `tsc --noEmit`, and `vitest run --coverage`. Auto-fix:
 `just fix` — oxfmt write on `src/**/*.ts`, rumdl fmt on
-repo-root `*.md`, and oxlint `--fix` on `src/`.
+repo-root `*.md`, and `oxlint --fix --fix-suggestions` on
+`src/`.
 
 Note that markdown gates only cover files at the repo root;
 `docs/ARCHITECTURE.md` and any future `docs/**/*.md` files are
