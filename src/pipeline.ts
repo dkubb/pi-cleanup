@@ -8,7 +8,7 @@
  * @module
  */
 
-// Keep direct phase imports after deleting the dead pipeline-git barrel.
+// Keep direct phase imports after deleting the dead git-helpers barrel.
 // This orchestrator intentionally exceeds the default dependency cap by one.
 /* oxlint-disable import/max-dependencies */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
