@@ -10,6 +10,7 @@
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
+import { warn } from "./logger.js";
 import { captureCollapseAnchor } from "./pipeline-collapse.js";
 import { buildReviewMessage } from "./phases/review.js";
 import type { RuntimeState } from "./runtime.js";
@@ -90,8 +91,9 @@ export const getCommitCount = async (
   const count = Number.parseInt(result.stdout.trim(), 10);
 
   if (Number.isNaN(count)) {
-    console.warn(
-      `[pi-cleanup] getCommitCount: failed to parse rev-list count (exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
+    warn(
+      "getCommitCount",
+      `failed to parse rev-list count (exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
     );
     return Option.none();
   }

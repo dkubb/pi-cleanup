@@ -12,6 +12,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
 import { registerCleanupCommand, registerGatesCommand } from "./commands.js";
+import { warn } from "./logger.js";
 import { ENTRY_TYPE_COMMIT, ENTRY_TYPE_GATES } from "./persistence.js";
 import { handleAgentEnd } from "./pipeline.js";
 import { restoreCommitSHA, restoreGateConfig } from "./restore.js";
@@ -75,8 +76,9 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
       if (Either.isRight(result)) {
         runtime.gateConfig = Option.some(result.right);
       } else if (result.left._tag === "InvalidCommand") {
-        console.warn(
-          `[pi-cleanup] restoreFromEntries: discarding gate entry with invalid command (raw=${JSON.stringify(result.left.raw)?.slice(0, 80) ?? "undefined"})`,
+        warn(
+          "restoreFromEntries",
+          `discarding gate entry with invalid command (raw=${JSON.stringify(result.left.raw)?.slice(0, 80) ?? "undefined"})`,
         );
       }
     }
@@ -87,8 +89,9 @@ const restoreFromEntries = (runtime: RuntimeState, entries: readonly SessionEntr
       if (Either.isRight(result)) {
         runtime.lastCleanCommitSHA = Option.some(result.right);
       } else if (result.left._tag === "InvalidSHA") {
-        console.warn(
-          `[pi-cleanup] restoreFromEntries: invalid CommitSHA in persisted entry (raw="${result.left.raw.slice(0, 80)}")`,
+        warn(
+          "restoreFromEntries",
+          `invalid CommitSHA in persisted entry (raw="${result.left.raw.slice(0, 80)}")`,
         );
       }
     }
@@ -120,8 +123,9 @@ export default function onAgentEnd(pi: ExtensionAPI): void {
       if (Either.isRight(headEither)) {
         runtime.lastCleanCommitSHA = Option.some(headEither.right);
       } else {
-        console.warn(
-          `[pi-cleanup] session_start: failed to parse HEAD SHA (git rev-parse exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
+        warn(
+          "session_start",
+          `failed to parse HEAD SHA (git rev-parse exit=${String(result.code)}, stdout="${result.stdout.slice(0, 80)}")`,
         );
       }
     }

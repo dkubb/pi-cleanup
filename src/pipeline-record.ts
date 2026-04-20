@@ -18,6 +18,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Either, Option } from "effect";
 
+import { warn } from "./logger.js";
 import { checkAtomicity } from "./phases/atomicity.js";
 import { checkGitStatus } from "./phases/dirty-tree.js";
 import { runGates } from "./phases/gates.js";
@@ -63,8 +64,9 @@ const recordFactoringIfComplete = async (
   const headEither = decodeCommitSHA(headResult.stdout.trim());
 
   if (Either.isLeft(headEither)) {
-    console.warn(
-      `[pi-cleanup] recordFactoringIfComplete: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
+    warn(
+      "recordFactoringIfComplete",
+      `failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
     );
     return;
   }

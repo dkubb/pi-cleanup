@@ -9,6 +9,7 @@
 
 import { Data, Either, Option } from "effect";
 
+import { warn } from "../logger.js";
 import { type CommitSHA, decodeCommitSHA, type ExecFn, type GateCommand } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -157,8 +158,9 @@ const classifyCommitRange = async (
   const count = Number.parseInt(countResult.stdout.trim(), 10);
 
   if (Number.isNaN(count)) {
-    console.warn(
-      `[pi-cleanup] classifyCommitRange: failed to parse rev-list count (exit=${String(countResult.code)}, stdout="${countResult.stdout.slice(0, 80)}")`,
+    warn(
+      "classifyCommitRange",
+      `failed to parse rev-list count (exit=${String(countResult.code)}, stdout="${countResult.stdout.slice(0, 80)}")`,
     );
     return AtomicityResult.Indeterminate();
   }
@@ -192,8 +194,9 @@ export const checkAtomicity = async (
 
   return Either.match(decodeCommitSHA(headResult.stdout.trim()), {
     onLeft: () => {
-      console.warn(
-        `[pi-cleanup] checkAtomicity: failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
+      warn(
+        "checkAtomicity",
+        `failed to parse HEAD SHA (exit=${String(headResult.code)}, stdout="${headResult.stdout.slice(0, 80)}")`,
       );
       return AtomicityResult.Indeterminate();
     },
