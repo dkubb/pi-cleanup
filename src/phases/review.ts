@@ -7,21 +7,7 @@
  * @module
  */
 
-import type { CommitSHA } from "../types.js";
-
-/**
- * Format a human-readable commit count label.
- *
- * @param count - Number of commits.
- * @returns Formatted label.
- */
-const formatCommitLabel = (count: number): string => {
-  if (count === 1) {
-    return "1 commit";
-  }
-
-  return `${String(count)} commits`;
-};
+import type { CommitCount, CommitSHA } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Review Message
@@ -65,9 +51,15 @@ export const buildReviewCommand = (
 export const buildReviewMessage = (
   baseSHA: CommitSHA,
   headSHA: CommitSHA,
-  commitCount: number,
+  commitCount: CommitCount,
 ): string => {
-  const commitLabel = formatCommitLabel(commitCount);
+  const commitCountText = String(commitCount);
+  let commitLabel = `${commitCountText} commits`;
+
+  if (commitCount === 1) {
+    commitLabel = `${commitCountText} commit`;
+  }
+
   const reviewCmd = buildReviewCommand(baseSHA, headSHA, commitCount);
 
   return [

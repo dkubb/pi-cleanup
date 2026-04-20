@@ -140,7 +140,7 @@ export const getCommitCount = async (
     `${String(baseSHA.value)}..${String(headEither.right)}`,
   ]);
 
-  const countEither = decodeCommitCount(result.stdout.trim());
+  const countEither = decodeCommitCount(result.stdout.trimEnd());
 
   if (Either.isLeft(countEither)) {
     warn(
@@ -189,7 +189,7 @@ export const runReviewIfNeeded = (input: ReviewInput): ReviewPhaseOutcome => {
     buildReviewMessage(
       reviewableRange.right.baseSHA,
       reviewableRange.right.headSHA,
-      Number(reviewableRange.right.commitCount),
+      reviewableRange.right.commitCount,
     ),
   );
 

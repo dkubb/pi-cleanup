@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { Either } from "effect";
+import { Either, Schema } from "effect";
 
 import { buildReviewCommand, buildReviewMessage } from "../../src/phases/review.js";
-import { decodeCommitSHA } from "../../src/types.js";
+import { CommitCount, decodeCommitSHA } from "../../src/types.js";
 
 const sha1 = Either.getOrThrow(decodeCommitSHA("a".repeat(40)));
 const sha2 = Either.getOrThrow(decodeCommitSHA("b".repeat(40)));
+const commitCount = (n: number): typeof CommitCount.Type =>
+  Schema.decodeUnknownSync(CommitCount)(String(n));
 
 describe("buildReviewCommand", () => {
   it("uses git show for a single commit", () => {
@@ -15,15 +17,13 @@ describe("buildReviewCommand", () => {
 
   it("uses git log --patch for multiple commits", () => {
     const cmd = buildReviewCommand(sha1, sha2, 3);
-    expect(cmd).toStrictEqual(
-      `git --no-pager log --patch ${"a".repeat(40)}..${"b".repeat(40)}`,
-    );
+    expect(cmd).toStrictEqual(`git --no-pager log --patch ${"a".repeat(40)}..${"b".repeat(40)}`);
   });
 });
 
 describe("buildReviewMessage", () => {
   it("returns the exact expected message for a single commit", () => {
-    const msg = buildReviewMessage(sha1, sha2, 1);
+    const msg = buildReviewMessage(sha1, sha2, commitCount(1));
 
     expect(msg).toStrictEqual(
       [
@@ -53,7 +53,7 @@ describe("buildReviewMessage", () => {
   });
 
   it("returns the exact expected message for multiple commits", () => {
-    const msg = buildReviewMessage(sha1, sha2, 5);
+    const msg = buildReviewMessage(sha1, sha2, commitCount(5));
 
     expect(msg).toStrictEqual(
       [

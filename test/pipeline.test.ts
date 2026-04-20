@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Either, Option } from "effect";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
@@ -53,6 +53,10 @@ const makePi = () => {
 
 const commitCount = (n: number): typeof CommitCount.Type =>
   Schema.decodeUnknownSync(CommitCount)(String(n));
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 const makeReviewInput = (overrides: Record<string, unknown> = {}) => {
   const runtime = createInitialRuntimeState();
@@ -993,6 +997,25 @@ describe("getAttempts", () => {
 // ---------------------------------------------------------------------------
 
 describe("getCommitCount", () => {
+  const expectInvalidCommitCount = async (stdout: string) => {
+    const { pi } = makePi();
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout,
+    });
+
+    const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
+
+    expect(result).toStrictEqual(Option.none());
+    expect(consoleWarn.mock.calls).toStrictEqual([
+      [
+        `[pi-cleanup] getCommitCount: failed to parse rev-list count (exit=0, stdout="${stdout.slice(0, 80)}")`,
+      ],
+    ]);
+  };
+
   it("returns None when HEAD is invalid", async () => {
     const { pi } = makePi();
     const result = await getCommitCount(pi, Either.left("bad"), Option.some(sha1));
@@ -1017,14 +1040,19 @@ describe("getCommitCount", () => {
   });
 
   it("returns None when rev-list output is not a number (no longer coerces to 0)", async () => {
-    const { pi } = makePi();
-    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
-      code: 0,
-      stderr: "",
-      stdout: "not-a-number\n",
-    });
-    const result = await getCommitCount(pi, Either.right(sha1), Option.some(sha2));
-    expect(result).toStrictEqual(Option.none());
+    await expectInvalidCommitCount("not-a-number\n");
+  });
+
+  it("returns None when rev-list stdout is a float", async () => {
+    await expectInvalidCommitCount("1.5\n");
+  });
+
+  it("returns None when rev-list stdout is a negative integer", async () => {
+    await expectInvalidCommitCount("-1\n");
+  });
+
+  it("returns None when rev-list stdout has leading whitespace", async () => {
+    await expectInvalidCommitCount("  3\n");
   });
 });
 
