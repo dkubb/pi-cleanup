@@ -8,6 +8,7 @@ import {
   formatCycleActions,
 } from "../src/pipeline-collapse.js";
 import {
+  AtomicityPhaseOutcome,
   checkConvergence,
   dispatch,
   runAtomicityPhase,
@@ -478,29 +479,71 @@ describe("runAtomicityPhase — cycleActions timing", () => {
       .mockResolvedValueOnce({ code: 0, stderr: "", stdout: commitCount });
   };
 
-  it("does not record a cycle action when sending the initial factor request", async () => {
+  it("returns FactoringRequested and does not record a cycle action on the initial factor request", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     primeAtomicityExec(pi, "5");
     const { ctx } = makeCtx();
 
-    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
+    const result = await runAtomicityPhase({
+      baseSHA: Option.some(sha2),
+      ctx,
+      gateConfig,
+      pi,
+      runtime,
+    });
 
+    expect(result).toStrictEqual(
+      AtomicityPhaseOutcome.FactoringRequested({
+        baseSHA: sha2,
+        commitCount: 5,
+        headSHA: sha1,
+      }),
+    );
     expect(runtime.cycleActions).toStrictEqual([]);
   });
 
-  it("does not record a cycle action when first-cycle commits are already atomic", async () => {
+  it("returns Atomic and does not record a cycle action when first-cycle commits are already atomic", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     primeAtomicityExec(pi, "1");
     const { ctx } = makeCtx();
 
-    await runAtomicityPhase({ baseSHA: Option.some(sha2), ctx, gateConfig, pi, runtime });
+    const result = await runAtomicityPhase({
+      baseSHA: Option.some(sha2),
+      ctx,
+      gateConfig,
+      pi,
+      runtime,
+    });
 
+    expect(result).toStrictEqual(AtomicityPhaseOutcome.Atomic({ headSHA: sha1 }));
     expect(runtime.cycleActions).toStrictEqual([]);
   });
 
-  it("dispatches Indeterminate when atomicity cannot parse HEAD", async () => {
+  it("returns NoBase when the comparable base equals HEAD", async () => {
+    const runtime = createInitialRuntimeState();
+    const { pi } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
+      code: 0,
+      stderr: "",
+      stdout: String(sha1) + "\n",
+    });
+    const { ctx } = makeCtx();
+
+    const result = await runAtomicityPhase({
+      baseSHA: Option.some(sha1),
+      ctx,
+      gateConfig,
+      pi,
+      runtime,
+    });
+
+    expect(result).toStrictEqual(AtomicityPhaseOutcome.NoBase({ headSHA: sha1 }));
+    expect(runtime.cycleActions).toStrictEqual([]);
+  });
+
+  it("returns Indeterminate when atomicity cannot parse HEAD", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -518,13 +561,8 @@ describe("runAtomicityPhase — cycleActions timing", () => {
       runtime,
     });
 
-    expect({
-      result,
-      cleanupState: runtime.cleanup._tag,
-    }).toStrictEqual({
-      result: true,
-      cleanupState: "Idle",
-    });
+    expect(result).toStrictEqual(AtomicityPhaseOutcome.Indeterminate());
+    expect(runtime.cleanup._tag).toStrictEqual("Idle");
   });
 });
 

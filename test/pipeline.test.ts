@@ -530,6 +530,226 @@ describe("handleAgentEnd", () => {
     });
   });
 
+  it("returns after requesting factoring and does not continue to eval", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.mutationDetected = true;
+    runtime.reviewComplete = true;
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..${String(sha1)}`) {
+          return { code: 0, stderr: "", stdout: "3\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..HEAD`) {
+          return { code: 0, stderr: "", stdout: "3\n" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 0,
+      cleanupState: "WaitingForFactoring",
+      evalPending: false,
+      sendUserMessageCalls: 1,
+    });
+  });
+
+  it("sends the eval message when atomicity confirms commits are atomic", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.mutationDetected = true;
+    runtime.reviewComplete = true;
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..${String(sha1)}`) {
+          return { code: 0, stderr: "", stdout: "1\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..HEAD`) {
+          return { code: 0, stderr: "", stdout: "1\n" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 1,
+      cleanupState: "Idle",
+      evalPending: true,
+      sendUserMessageCalls: 1,
+    });
+  });
+
+  it("sends the eval message when atomicity has no comparable base", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha1);
+    runtime.mutationDetected = true;
+    runtime.reviewComplete = true;
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain") {
+          return { code: 0, stderr: "", stdout: "M foo.ts\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha1)}..${String(sha1)}`) {
+          return { code: 0, stderr: "", stdout: "0\n" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 1,
+      cleanupState: "Idle",
+      evalPending: true,
+      sendUserMessageCalls: 1,
+    });
+  });
+
+  it("sends the eval message when atomicity is indeterminate", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.mutationDetected = true;
+    runtime.reviewComplete = true;
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: "invalid\n" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      appendEntryCalls: (pi.appendEntry as ReturnType<typeof vi.fn>).mock.calls.length,
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      appendEntryCalls: 0,
+      cleanupState: "Idle",
+      evalPending: true,
+      sendUserMessageCalls: 1,
+    });
+  });
+
   it("sends the eval message after factoring convergence (no early return)", async () => {
     // Regression: when the agent responds to a factoring nudge
     // without changing HEAD (no factoring needed), checkConvergence

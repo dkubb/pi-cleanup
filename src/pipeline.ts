@@ -228,11 +228,13 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
     return true;
   }
 
-  if (!(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime }))) {
-    return true;
-  }
-
-  return false;
+  return Match.value(await runAtomicityPhase({ baseSHA, ctx, gateConfig, pi, runtime })).pipe(
+    Match.tag("FactoringRequested", (): true => true),
+    Match.tag("Atomic", (): false => false),
+    Match.tag("NoBase", (): false => false),
+    Match.tag("Indeterminate", (): false => false),
+    Match.exhaustive,
+  );
 };
 
 // ---------------------------------------------------------------------------

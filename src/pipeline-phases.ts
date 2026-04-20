@@ -8,7 +8,7 @@
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { Either, Match, Option } from "effect";
+import { Data, Either, Match, Option } from "effect";
 
 import { persistCleanCommit } from "./persistence.js";
 import { buildFactorMessage, checkAtomicity } from "./phases/atomicity.js";
@@ -161,6 +161,25 @@ export const runDirtyTreePhase = async (
   );
 };
 
+/** Outcome of running the atomicity phase for this cycle. */
+export type AtomicityPhaseOutcome = Data.TaggedEnum<{
+  /** Commits need factoring; nudge sent; caller must stop. */
+  readonly FactoringRequested: {
+    readonly baseSHA: CommitSHA;
+    readonly commitCount: number;
+    readonly headSHA: CommitSHA;
+  };
+  /** Atomicity confirmed; caller may proceed to eval. */
+  readonly Atomic: { readonly headSHA: CommitSHA };
+  /** No comparable base; caller may proceed to eval. */
+  readonly NoBase: { readonly headSHA: CommitSHA };
+  /** Rev-list or HEAD could not be parsed; caller may proceed to eval. */
+  readonly Indeterminate: {};
+}>;
+
+/** Constructor namespace for {@link AtomicityPhaseOutcome} variants. */
+export const AtomicityPhaseOutcome = Data.taggedEnum<AtomicityPhaseOutcome>();
+
 /** Context for the atomicity phase. */
 export interface AtomicityPhaseContext {
   readonly pi: ExtensionAPI;
@@ -194,20 +213,24 @@ const handleAtomicitySuccess = (sc: AtomicitySuccessContext): void => {
  * commit range and gate commands. Otherwise persists the clean SHA.
  *
  * @param phaseCtx - The atomicity phase context.
- * @returns True if atomicity passed (caller should proceed to eval).
+ * @returns A tagged outcome naming whether factoring was requested,
+ *   atomicity passed, no base was available, or the result was
+ *   indeterminate this cycle.
  */
-export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promise<boolean> => {
+export const runAtomicityPhase = async (
+  phaseCtx: AtomicityPhaseContext,
+): Promise<AtomicityPhaseOutcome> => {
   const { pi, runtime, ctx, gateConfig, baseSHA } = phaseCtx;
   const result = await checkAtomicity(pi.exec.bind(pi), baseSHA);
 
   return Match.value(result).pipe(
-    Match.tag("NeedsFactoring", (r): false => {
+    Match.tag("NeedsFactoring", (r) => {
       dispatch(runtime, ctx, TransitionEvent.NeedsFactoring(r));
       pi.sendUserMessage(buildFactorMessage(r.baseSHA, r.headSHA, gateConfig.commands));
 
-      return false;
+      return AtomicityPhaseOutcome.FactoringRequested(r);
     }),
-    Match.tag("Atomic", (r): true => {
+    Match.tag("Atomic", (r) => {
       handleAtomicitySuccess({
         ctx,
         event: TransitionEvent.Atomic(r),
@@ -216,9 +239,9 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
         runtime,
       });
 
-      return true;
+      return AtomicityPhaseOutcome.Atomic(r);
     }),
-    Match.tag("NoBase", (r): true => {
+    Match.tag("NoBase", (r) => {
       handleAtomicitySuccess({
         ctx,
         event: TransitionEvent.NoBase(r),
@@ -227,12 +250,12 @@ export const runAtomicityPhase = async (phaseCtx: AtomicityPhaseContext): Promis
         runtime,
       });
 
-      return true;
+      return AtomicityPhaseOutcome.NoBase(r);
     }),
-    Match.tag("Indeterminate", (): true => {
+    Match.tag("Indeterminate", () => {
       dispatch(runtime, ctx, TransitionEvent.Indeterminate());
 
-      return true;
+      return AtomicityPhaseOutcome.Indeterminate();
     }),
     Match.exhaustive,
   );
