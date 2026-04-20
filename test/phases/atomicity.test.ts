@@ -222,11 +222,37 @@ describe("checkAtomicity — Atomic", () => {
     expect(result._tag).toStrictEqual("Atomic");
   });
 
-  it("returns Indeterminate when rev-list output is not a number (no longer silently treats as Atomic)", async () => {
+  it("returns Indeterminate when rev-list output is not a number", async () => {
     const exec: ExecFn = async (_cmd, args) => {
       const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
         "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
         "rev-list": { code: 0, stdout: "not-a-number\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
+    };
+    const result = await checkAtomicity(exec, Option.some(sha2));
+    expect(result._tag).toStrictEqual("Indeterminate");
+  });
+
+  it("returns Indeterminate when rev-list output is a float", async () => {
+    const exec: ExecFn = async (_cmd, args) => {
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "1.5\n", stderr: "" },
+      };
+      const key = args[0] ?? "";
+      return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };
+    };
+    const result = await checkAtomicity(exec, Option.some(sha2));
+    expect(result._tag).toStrictEqual("Indeterminate");
+  });
+
+  it("returns Indeterminate when rev-list output is negative", async () => {
+    const exec: ExecFn = async (_cmd, args) => {
+      const dispatch: Record<string, { code: number; stdout: string; stderr: string }> = {
+        "rev-parse": { code: 0, stdout: sha1 + "\n", stderr: "" },
+        "rev-list": { code: 0, stdout: "-1\n", stderr: "" },
       };
       const key = args[0] ?? "";
       return dispatch[key] ?? { code: 1, stdout: "", stderr: "" };

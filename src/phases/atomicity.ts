@@ -10,7 +10,13 @@
 import { Data, Either, Option } from "effect";
 
 import { warn } from "../logger.js";
-import { type CommitSHA, decodeCommitSHA, type ExecFn, type GateCommand } from "../types.js";
+import {
+  type CommitSHA,
+  decodeCommitCount,
+  decodeCommitSHA,
+  type ExecFn,
+  type GateCommand,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Base SHA Utility
@@ -155,15 +161,17 @@ const classifyCommitRange = async (
   baseSHA: CommitSHA,
 ): Promise<AtomicityResult> => {
   const countResult = await exec("git", ["rev-list", "--count", `${String(baseSHA)}..HEAD`]);
-  const count = Number.parseInt(countResult.stdout.trim(), 10);
+  const countEither = decodeCommitCount(countResult.stdout.trim());
 
-  if (Number.isNaN(count)) {
+  if (Either.isLeft(countEither)) {
     warn(
       "classifyCommitRange",
       `failed to parse rev-list count (exit=${String(countResult.code)}, stdout="${countResult.stdout.slice(0, 80)}")`,
     );
     return AtomicityResult.Indeterminate();
   }
+
+  const count = countEither.right;
 
   if (count <= 1) {
     return AtomicityResult.Atomic({ headSHA });

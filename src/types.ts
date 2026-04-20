@@ -14,7 +14,7 @@ import type {
   ExecResult,
   ExtensionCommandContext,
 } from "@mariozechner/pi-coding-agent";
-import { Data, Schema } from "effect";
+import { Data, Schema, type Either, type ParseResult } from "effect";
 
 // ---------------------------------------------------------------------------
 // Branded Primitives
@@ -133,6 +133,52 @@ export type AttemptCount = typeof AttemptCount.Type;
  * `Left<ParseError>` for negative numbers or non-integers.
  */
 export const decodeAttemptCount = Schema.decodeUnknownEither(AttemptCount);
+
+/**
+ * A non-negative integer commit count parsed from git stdout.
+ *
+ * @example
+ * ```ts
+ * import { Either } from "effect";
+ *
+ * // Valid: zero commits
+ * const zero = decodeCommitCount("0");
+ * assert(Either.isRight(zero));
+ *
+ * // Valid: multiple commits
+ * const fortyTwo = decodeCommitCount("42");
+ * assert(Either.isRight(fortyTwo));
+ *
+ * // Invalid: negative
+ * const neg = decodeCommitCount("-1");
+ * assert(Either.isLeft(neg));
+ *
+ * // Invalid: non-integer
+ * const frac = decodeCommitCount("1.5");
+ * assert(Either.isLeft(frac));
+ * ```
+ */
+export const CommitCount = Schema.String.pipe(
+  Schema.pattern(/^\d+$/),
+  Schema.parseNumber,
+  Schema.int(),
+  Schema.nonNegative(),
+  Schema.brand("CommitCount"),
+);
+
+/** A validated non-negative integer commit count. */
+export type CommitCount = typeof CommitCount.Type;
+
+/**
+ * Parse an unknown value into a CommitCount.
+ *
+ * Returns `Right<CommitCount>` for non-negative integer strings,
+ * `Left<ParseError>` for negatives, floats, whitespace-padded strings,
+ * and non-numeric values.
+ */
+export const decodeCommitCount: (
+  input: unknown,
+) => Either.Either<CommitCount, ParseResult.ParseError> = Schema.decodeUnknownEither(CommitCount);
 
 /**
  * Increment an AttemptCount by one.
