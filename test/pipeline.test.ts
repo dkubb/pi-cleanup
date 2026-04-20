@@ -481,6 +481,82 @@ describe("handleAgentEnd", () => {
     expect(runtime.cycleActions).toStrictEqual(["Fixed failing gate: `npm test`"]);
   });
 
+  it("continues to eval when the initial repo probe says git is unavailable", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 128, stderr: "fatal: not a git repository", stdout: "" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      cleanupState: "Idle",
+      evalPending: true,
+      sendUserMessageCalls: 1,
+    });
+  });
+
+  it("returns before eval when git status becomes NotARepo after a successful repo probe", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 128, stderr: "fatal: not a git repository", stdout: "" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      cleanupState: runtime.cleanup._tag,
+      evalPending: runtime.evalPending,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      cleanupState: "Idle",
+      evalPending: false,
+      sendUserMessageCalls: 0,
+    });
+  });
+
   it("returns after requesting review and does not continue to eval", async () => {
     const runtime = createInitialRuntimeState();
     const cmd = Either.getOrThrow(decodeGateCommand("just check"));
@@ -754,6 +830,71 @@ describe("handleAgentEnd", () => {
       cleanupState: "Idle",
       evalPending: true,
       sendUserMessageCalls: 1,
+    });
+  });
+
+  it("completes the cycle on the second eval pass after all phases pass", async () => {
+    const runtime = createInitialRuntimeState();
+    const cmd = Either.getOrThrow(decodeGateCommand("just check"));
+    runtime.gateConfig = Option.some({ commands: [cmd], description: "test" });
+    runtime.lastCleanCommitSHA = Option.some(sha2);
+    runtime.reviewComplete = true;
+    runtime.evalPending = true;
+    runtime.commandCtx = Option.some({
+      navigateTree: vi.fn(async () => ({ cancelled: false })),
+    });
+    runtime.collapseAnchorId = Option.some("entry-123");
+
+    const { pi, sendUserMessage } = makePi();
+    (pi.exec as ReturnType<typeof vi.fn>).mockImplementation(
+      async (bin: string, args: ReadonlyArray<string>) => {
+        const argStr = args.join(" ");
+
+        if (bin === "bash") {
+          return { code: 0, stderr: "", stdout: "ok" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse --git-dir") {
+          return { code: 0, stderr: "", stdout: ".git\n" };
+        }
+
+        if (bin === "git" && argStr === "status --porcelain=v1") {
+          return { code: 0, stderr: "", stdout: "" };
+        }
+
+        if (bin === "git" && argStr === "rev-parse HEAD") {
+          return { code: 0, stderr: "", stdout: String(sha1) + "\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..${String(sha1)}`) {
+          return { code: 0, stderr: "", stdout: "1\n" };
+        }
+
+        if (bin === "git" && argStr === `rev-list --count ${String(sha2)}..HEAD`) {
+          return { code: 0, stderr: "", stdout: "1\n" };
+        }
+
+        throw new Error(`unexpected exec: ${bin} ${argStr}`);
+      },
+    );
+    const { ctx } = makeCtx();
+
+    await handleAgentEnd(pi, runtime, ctx);
+
+    expect({
+      collapseAnchorId: runtime.collapseAnchorId,
+      cycleActions: runtime.cycleActions,
+      cycleComplete: runtime.cycleComplete,
+      evalPending: runtime.evalPending,
+      mutationDetected: runtime.mutationDetected,
+      sendUserMessageCalls: sendUserMessage.mock.calls.length,
+    }).toStrictEqual({
+      collapseAnchorId: Option.none(),
+      cycleActions: ["Verified task completion"],
+      cycleComplete: true,
+      evalPending: false,
+      mutationDetected: false,
+      sendUserMessageCalls: 0,
     });
   });
 

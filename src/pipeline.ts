@@ -202,7 +202,16 @@ const runGitPhases = async (phaseCtx: GitPhaseContext): Promise<boolean> => {
     return false;
   }
 
-  if (await runDirtyTreePhase(pi, runtime, ctx)) {
+  const dirtyTreeOutcome = await runDirtyTreePhase(pi, runtime, ctx);
+
+  if (
+    Match.value(dirtyTreeOutcome).pipe(
+      Match.tag("CommitRequested", (): true => true),
+      Match.tag("NotARepo", (): true => true),
+      Match.tag("Clean", (): false => false),
+      Match.exhaustive,
+    )
+  ) {
     return true;
   }
 

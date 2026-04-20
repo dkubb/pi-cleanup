@@ -10,6 +10,7 @@ import {
 import {
   AtomicityPhaseOutcome,
   checkConvergence,
+  DirtyTreePhaseOutcome,
   dispatch,
   runAtomicityPhase,
   runDirtyTreePhase,
@@ -366,7 +367,7 @@ describe("runGatePhase", () => {
 // ---------------------------------------------------------------------------
 
 describe("runDirtyTreePhase", () => {
-  it("returns false when tree is clean", async () => {
+  it("returns Clean when tree is clean", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -377,10 +378,10 @@ describe("runDirtyTreePhase", () => {
     const { ctx } = makeCtx();
 
     const result = await runDirtyTreePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(false);
+    expect(result).toStrictEqual(DirtyTreePhaseOutcome.Clean());
   });
 
-  it("returns true and sends commit message when dirty", async () => {
+  it("returns CommitRequested and sends commit message when dirty", async () => {
     const runtime = createInitialRuntimeState();
     const { pi, sendUserMessage } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -391,12 +392,14 @@ describe("runDirtyTreePhase", () => {
     const { ctx } = makeCtx();
 
     const result = await runDirtyTreePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(true);
+    expect(result).toStrictEqual(
+      DirtyTreePhaseOutcome.CommitRequested({ porcelain: "M foo.ts" }),
+    );
     expect(runtime.cleanup._tag).toStrictEqual("WaitingForTreeFix");
     expect(sendUserMessage).toHaveBeenCalled();
   });
 
-  it("returns true when not a git repo", async () => {
+  it("returns NotARepo when not a git repo", async () => {
     const runtime = createInitialRuntimeState();
     const { pi } = makePi();
     (pi.exec as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -407,7 +410,7 @@ describe("runDirtyTreePhase", () => {
     const { ctx } = makeCtx();
 
     const result = await runDirtyTreePhase(pi, runtime, ctx);
-    expect(result).toStrictEqual(true);
+    expect(result).toStrictEqual(DirtyTreePhaseOutcome.NotARepo());
   });
 
   it("does not record a cycle action when sending the initial commit request", async () => {

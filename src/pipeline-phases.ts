@@ -121,6 +121,19 @@ export const runGatePhase = async (
   );
 };
 
+/** Outcome of running the dirty-tree phase for this cycle. */
+export type DirtyTreePhaseOutcome = Data.TaggedEnum<{
+  /** Tree is dirty; commit nudge sent; caller must stop. */
+  readonly CommitRequested: { readonly porcelain: string };
+  /** Git status failed; state updated to reflect not-a-repo. */
+  readonly NotARepo: {};
+  /** Tree is clean; caller may continue to review/atomicity/eval. */
+  readonly Clean: {};
+}>;
+
+/** Constructor namespace for {@link DirtyTreePhaseOutcome} variants. */
+export const DirtyTreePhaseOutcome = Data.taggedEnum<DirtyTreePhaseOutcome>();
+
 /**
  * Check the working tree for uncommitted changes.
  *
@@ -130,32 +143,33 @@ export const runGatePhase = async (
  * @param pi - The extension API for exec and messaging.
  * @param runtime - The mutable runtime state.
  * @param ctx - The extension context for status updates.
- * @returns True if the phase handled the event (caller should return).
+ * @returns A tagged outcome naming whether a commit was requested,
+ *   git status reported not-a-repo, or the tree is clean.
  */
 export const runDirtyTreePhase = async (
   pi: ExtensionAPI,
   runtime: RuntimeState,
   ctx: ExtensionContext,
-): Promise<boolean> => {
+): Promise<DirtyTreePhaseOutcome> => {
   const result = await checkGitStatus(pi.exec.bind(pi));
 
   return Match.value(result).pipe(
-    Match.tag("Dirty", (r): true => {
+    Match.tag("Dirty", (r): DirtyTreePhaseOutcome => {
       dispatch(runtime, ctx, TransitionEvent.GitDirty(r));
       pi.sendUserMessage(buildDirtyTreeMessage(r.porcelain));
 
-      return true;
+      return DirtyTreePhaseOutcome.CommitRequested(r);
     }),
-    Match.tag("NotARepo", (): true => {
+    Match.tag("NotARepo", (): DirtyTreePhaseOutcome => {
       dispatch(runtime, ctx, TransitionEvent.NotARepo());
 
-      return true;
+      return DirtyTreePhaseOutcome.NotARepo();
     }),
-    Match.tag("Clean", (): false => {
+    Match.tag("Clean", (): DirtyTreePhaseOutcome => {
       if (runtime.cleanup._tag === "WaitingForTreeFix") {
         dispatch(runtime, ctx, TransitionEvent.GitClean());
       }
-      return false;
+      return DirtyTreePhaseOutcome.Clean();
     }),
     Match.exhaustive,
   );
