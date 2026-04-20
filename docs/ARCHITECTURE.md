@@ -26,39 +26,24 @@ agent is idle at `agent_end`, this starts a new agent run. When
 that run completes, `agent_end` fires again, and the handler
 re-enters the pipeline (respecting the current cycle position).
 
-The handler does **not** await `sendUserMessage` — it calls it
-and returns, allowing the extension runner to finish. The new
-agent run fires its own `agent_end` when done.
+The handler has two delivery cases:
 
-### `sendUserMessage` Does Not Route Extension Commands
+- **Fix-message dispatches** (gate fix, dirty tree, review,
+  factor, eval first pass) call `pi.sendUserMessage(text)` and
+  do **not** await. Since pi is idle at `agent_end`, this starts
+  a new agent run. The extension handler returns immediately so
+  the runner can drain, and that new run's `agent_end` drives
+  pipeline re-entry.
+- **Terminal collapse** is different. The second pass of
+  `runEvalOrComplete` awaits `collapseIfNeeded(runtime)`
+  directly. `navigateTree` must complete before the handler
+  resolves; otherwise later pipeline entries could observe a
+  mixed visible state.
 
-`sendUserMessage` calls `prompt()` with
-`expandPromptTemplates: false`, which **skips extension command
-dispatch and template expansion** inside `prompt()`. The only
-call site of `_tryExecuteExtensionCommand` in
-`agent-session.js` is guarded by `expandPromptTemplates`, so
-text starting with `/` is not dispatched to a registered
-command handler via `sendUserMessage`.
-
-This is why each fix message (gates, dirty tree, review,
-factor, eval) is written as prose for the LLM, not as a slash
-command — sending `/some-command` here would deliver the text
-to the LLM, not invoke the command.
-
-### Cycle Collapse Uses a `followUp` Slash Message
-
-The one place the pipeline emits text that begins with `/` is
-the terminal eval pass, which calls
-`pi.sendUserMessage("/cleanup collapse",
-{ deliverAs: "followUp" })`. Because this still goes through
-`sendUserMessage` (with `expandPromptTemplates: false`), the
-`/cleanup` handler is not invoked via the in-`prompt` command
-dispatch. The text is queued as a follow-up user message; the
-resulting `/cleanup collapse` invocation therefore relies on
-pi-coding-agent's follow-up processing to ultimately route the
-slash command. The mechanism details live outside this
-extension, so this doc only describes what the extension
-observably sends. See the Collapse section.
+The collapse path used to route through an LLM round-trip. It
+now stays inside the harness, which is more deterministic and
+also a correctness fix because the slash follow-up design never
+actually hit the command handler. See the Collapse section.
 
 ## Effect-TS
 
@@ -80,7 +65,8 @@ The project uses [Effect](https://effect.website) for:
 - **`Either`** as the result type for fallible operations. No
   thrown exceptions for expected failures.
 - **`Option`** for values that may be absent (`lastCleanCommitSHA`,
-  `gateConfig`, `collapseAnchorId`, `commandCtx`).
+  `gateConfig`, `collapseAnchorId`, `commandCtx`,
+  `pluginVersion`).
 
 ### Parse, Don't Validate
 
@@ -112,10 +98,49 @@ const decodeCommitSHA = Schema.decodeUnknownEither(CommitSHA);
 const idle = CleanupState.Idle();
 ```
 
+Parallel branded primitives follow the same pattern:
+
+- `CommitSHA` — pattern `/^[0-9a-f]{40}$/`, decoded via
+  `decodeCommitSHA`. Boundary for git SHAs everywhere.
+- `GateCommand` — trimmed non-empty string, decoded via
+  `decodeGateCommand`. Boundary for `/gates` input and
+  persisted entries.
+- `AttemptCount` — non-negative integer, decoded via
+  `decodeAttemptCount`. Used on `WaitingFor*` state variants to
+  track retries.
+- `CommitCount` — non-negative-integer-from-string, decoded via
+  `decodeCommitCount`. Boundary for `git rev-list --count`
+  output. Replaced a prior `parseInt + isNaN`
+  silent-coercion site.
+
 Note: `ExecFn` and `AppendEntryFn` are plain type aliases for
 dependency injection, not branded types. They cannot be validated
 at a boundary (you can't validate a function). They exist
 alongside the branded types in `types.ts` for convenience.
+
+### Parsing Numbers from Strings
+
+When parsing a number from a string, pre-filter with a regex
+before handing to Schema's `parseNumber`. The regex should
+reject any format ambiguity — leading zeros, whitespace, signs,
+hex/octal prefixes — so the `parseNumber` step can never see
+input with multiple valid interpretations.
+
+Reference patterns:
+
+- Non-negative integer (allowing bare `0`, rejecting `00` /
+  `007`): `/^(0|[1-9]\d*)$/`
+- Non-negative decimal (allowing `0.1`, `1.1`; rejecting `01` /
+  `01.1` / `.1` / `1.`):
+  `/^(0|[1-9]\d*)(\.\d+)?$/`
+
+Regex-first rejection eliminates the old `parseInt(..., 10)`
+radix-ambiguity dance: if the regex never lets an ambiguous
+string through, base-10 parsing is both implicit and
+unambiguous. `CommitCount` currently uses the looser `/^\d+$/`
+pattern — a follow-up should tighten it to
+`/^(0|[1-9]\d*)$/` with regression tests for `007`, `00`, `01`
+rejection.
 
 ### Tagged Enums
 
@@ -179,6 +204,33 @@ type GitStatusResult = Data.TaggedEnum<{
 function checkGitStatus(exec: ExecFn): Promise<GitStatusResult>;
 ```
 
+That same philosophy extends to the runner return types in the
+pipeline orchestrator. The orchestrator consumes explicit
+variants, not fused booleans.
+
+### Tagged Enum Inventory
+
+| Category | Type | Purpose + variants |
+| --- | --- | --- |
+| State machine | `CleanupState` | Resting cleanup state across agent runs. Variants: `Idle`, `WaitingForTreeFix`, `WaitingForGateFix`, `WaitingForFactoring`, `AwaitingUserInput`, `Disabled`. |
+| State machine | `AwaitingReason` | Why `AwaitingUserInput` is blocked. Variants: `GatesUnconfigured`, `Stalled`. |
+| State machine | `TransitionEvent` | Inputs that drive state transitions. Variants: `GitDirty`, `GitClean`, `NotARepo`, `GateFailed`, `GatesPassed`, `NoGateConfig`, `NeedsFactoring`, `FactoringConverged`, `Atomic`, `NoBase`, `Indeterminate`, `MaxAttemptsExceeded`, `UserEnabled`, `UserDisabled`, `UserResumed`, `GatesConfigured`, `SessionStarted`. |
+| Phase outcomes | `ReviewPhaseOutcome` | Review runner outcome. Variants: `Requested`, `Completed`, `Skipped`. |
+| Phase outcomes | `ReviewSkipReason` | Why review skipped this cycle. Variants: `AlreadyComplete`, `HeadUnavailable`, `BaseUnavailable`, `CommitCountUnavailable`, `EmptyRange`. |
+| Phase outcomes | `AtomicityPhaseOutcome` | Atomicity runner outcome. Variants: `FactoringRequested`, `Atomic`, `NoBase`, `Indeterminate`. |
+| Phase outcomes | `DirtyTreePhaseOutcome` | Dirty-tree runner outcome. Variants: `CommitRequested`, `NotARepo`, `Clean`. |
+| Phase intermediate results | `GitStatusResult` | Raw git-status observation. Variants: `Clean`, `Dirty`, `NotARepo`. |
+| Phase intermediate results | `GateResult` | Gate execution result. Variants: `AllPassed`, `Failed`. |
+| Phase intermediate results | `AtomicityResult` | Commit-range classification inside atomicity checking. Variants: `Atomic`, `NoBase`, `Indeterminate`, `NeedsFactoring`. |
+| Boundary errors | `GateConfigRestoreError` | Gate-entry restore failures. Variants: `NotARecord`, `Tombstone`, `CommandsNotArray`, `CommandsEmpty`, `InvalidCommand`. |
+| Boundary errors | `CommitSHARestoreError` | Commit-entry restore failures. Variants: `NotAString`, `InvalidSHA`. |
+| Boundary errors | `ParseGateInputError` | `/gates` input parsing failures. Variants: `Empty`, `InvalidCommand`. |
+| Handler skip | `SkipReason` | Why `agent_end` skipped the pipeline. Variants: `NotActionable`, `CycleComplete`, `NoMutation`. |
+
+Every distinct outcome gets its own variant; no
+`true`/`false`/`null`/`undefined` hides multiple meanings behind a
+single value.
+
 ## Pipeline
 
 The pipeline runs on every `agent_end` that is not skipped, in
@@ -206,24 +258,45 @@ fixed order:
 5. **Eval phase** — once everything passes, prompts the agent
    to verify the original task is actually complete. First pass
    sends the eval prompt; second pass marks the cycle done.
-6. **Collapse** — the second eval pass dispatches
-   `/cleanup collapse`, which calls `commandCtx.navigateTree` to
-   summarize the cleanup turns and navigate back to the anchor
-   captured before the first cleanup message.
+6. **Collapse** — the second eval pass awaits
+   `collapseIfNeeded(runtime)` directly, which uses the stored
+   `commandCtx` bridge to call `navigateTree` and summarize the
+   cleanup turns.
 
-Phase runners live in `src/pipeline-phases.ts` (gates, dirty
-tree, atomicity) and `src/pipeline-review.ts` (review). The
-top-level orchestrator is `handleAgentEnd` in `src/pipeline.ts`.
+The top-level orchestrator is `handleAgentEnd` in
+`src/pipeline.ts`. Phase runners are split across small
+single-responsibility modules: `src/pipeline-phases.ts` (gate
+and dirty-tree and atomicity runners), `src/pipeline-review.ts`
+(review runner + commit count), `src/pipeline-collapse.ts`
+(anchor capture + collapse), `src/pipeline-skip.ts`
+(skip-reason decision), and `src/pipeline-record.ts`
+(prior-cycle completion observation).
 
-Each phase runner returns a boolean, but the meaning varies:
+Each phase runner returns a tagged value that preserves the
+reason for the outcome:
 
-- `runGatePhase`, `runDirtyTreePhase`, `runReviewIfNeeded` —
-  `true` means "I handled it; caller should return early" and
-  `false` means "nothing to do, continue to the next phase".
-- `runAtomicityPhase` — `true` means "atomicity passed, caller
-  should proceed to eval"; `false` means "I dispatched a
-  factor request, caller should return early". The orchestrator
-  inverts it at the call site.
+- `runGatePhase` returns `Option<GateConfig>`: `None` means the
+  phase handled it (no gate configured → dispatched
+  `NoGateConfig`, or a gate failed → dispatched `GateFailed` +
+  nudge). `Some(config)` means gates passed — caller continues
+  with the unwrapped config.
+- `runDirtyTreePhase` returns `DirtyTreePhaseOutcome`:
+  `CommitRequested({ porcelain })` / `NotARepo` / `Clean`.
+  Caller matches via `Match.value(...).pipe(Match.tag(...),
+  Match.exhaustive)`.
+- `runReviewIfNeeded` returns `ReviewPhaseOutcome`:
+  `Requested` / `Completed` / `Skipped({ reason:
+  ReviewSkipReason })`. Only `Requested` short-circuits the
+  pipeline; `Completed` and `Skipped` continue to atomicity.
+- `runAtomicityPhase` returns `AtomicityPhaseOutcome`:
+  `FactoringRequested` / `Atomic` / `NoBase` /
+  `Indeterminate`. Only `FactoringRequested` short-circuits.
+
+Why this shape: fused booleans lose information; distinct
+variants let callers act on each case explicitly. See the
+existing "Phase Result Types" subsection above — the same
+philosophy that uses tagged enums for `GitStatusResult` extends
+to runner return types.
 
 Eval and collapse live in `runEvalOrComplete`, which has no
 return value — it is the terminal phase and always owns the
@@ -239,25 +312,33 @@ plus each extension-injected continuation.
 The cycle state lives on the `RuntimeState` (see `src/runtime.ts`):
 
 - `mutationDetected` — set by the `tool_call` listener whenever
-  `bash`, `edit`, or `write` runs. The pipeline skips entirely
-  if no mutation has occurred since the last completed cycle and
-  nothing is mid-cycle.
+  a tool in `FILE_MUTATING_TOOLS` runs. The pipeline skips
+  entirely if no mutation has occurred since the last completed
+  cycle and nothing is mid-cycle.
 - `reviewPending`, `reviewComplete` — review is a two-pass
   phase. First pass sets `reviewPending = true` and sends the
   review request; on re-entry, `reviewPending` is cleared and
   `reviewComplete` is set so review does not repeat.
 - `evalPending`, `cycleComplete` — eval is also two-pass. First
   pass sends the eval prompt. Second pass marks the cycle
-  complete and dispatches `/cleanup collapse`.
+  complete and calls collapse directly.
 - `cycleActions` — list of human-readable descriptions of what
   this cycle did. Passed to `navigateTree` as custom
   instructions so the collapse summary reflects the work.
-- `collapseAnchorId` — leaf entry ID captured just before the
-  first cleanup `sendUserMessage` of the cycle. Set by
-  `captureCollapseAnchor`.
+- `collapseAnchorId` — leaf entry ID captured at the pre-user-
+  prompt boundary. The `input` handler stores the current leaf
+  before the next user prompt enters the tree, so collapse can
+  fold the entire cycle — user prompt, agent work, extension
+  nudges, and follow-up responses — into one summary.
 - `commandCtx` — stored `navigateTree` binding captured when the
   `/cleanup` or `/gates` command last ran. Needed because
-  `navigateTree` is only exposed via `ExtensionCommandContext`.
+  `navigateTree` is only exposed via `ExtensionCommandContext`,
+  not the `ExtensionContext` passed to event handlers. Written
+  on every command invocation via the shared `storeCommandCtx`
+  helper; `handleCleanupCollapse` additionally re-stores it on
+  entry so a manual `/cleanup collapse` always uses the
+  freshest binding. The pipeline's direct `collapseIfNeeded`
+  call reads whichever binding was last written.
 
 ### Skip Logic
 
@@ -278,14 +359,58 @@ running phases.
 
 ### Cycle Reset
 
-The `input` listener watches for non-extension prompts. When a
-new user-sourced prompt arrives with `cycleComplete === true`,
-the listener clears `cycleComplete`, `evalPending`,
-`reviewPending`, `reviewComplete`, and `cycleActions` — opening
-a fresh cycle for the new prompt.
+The `input` listener watches for non-extension prompts. It
+always re-captures the collapse anchor for the next user-
+initiated task by clearing `collapseAnchorId` and recording the
+current leaf ID again.
+
+When a new user-sourced prompt arrives with
+`cycleComplete === true`, the same handler also clears
+`cycleComplete`, `evalPending`, `reviewPending`,
+`reviewComplete`, and `cycleActions` — opening a fresh cycle for
+the new prompt.
 
 Extension-injected `sendUserMessage` calls have
-`event.source === "extension"` and do not reset the cycle.
+`event.source === "extension"` and do not reset the cycle or
+re-capture the user-boundary anchor.
+
+## Commands
+
+The extension registers two slash-command families.
+
+- `/gates` (no args) — opens the editor modal to configure
+  gates; primarily a TUI path. Lets the user enter one command
+  per line.
+- `/gates show` — notifies the current gate configuration, or
+  `No gates configured.`
+- `/gates clear` — clears gates (writes a tombstone entry so the
+  clear survives session reload).
+- `/gates configure <commands>` — non-interactive form. Single
+  line: `/gates configure just check`. Multi-line: embedded
+  literal newlines, one command per line. Empty arg → usage
+  hint, does not clear existing config. Invalid line → error
+  notification, existing config untouched. Bypasses the editor
+  — intended for RPC drivers and headless automation that
+  cannot respond to editor prompts. Side effects identical to
+  the editor path.
+- `/cleanup on` / `off` / `resume` — state-machine transitions
+  (`UserEnabled` / `UserDisabled` / `UserResumed`).
+- `/cleanup status` — notifies
+  `State: <tag>\nGates: <N-or-none>\nLast clean: <sha-or-none>\nVersion: <short-sha-or-unknown>`.
+- `/cleanup collapse` — manual collapse trigger; calls
+  `collapseIfNeeded`. Rarely needed — the pipeline runs this
+  automatically at end-of-cycle.
+- `/cleanup reload` — warm-reload the extension. Calls
+  `ctx.reload()` which invokes `AgentSession.reload()`: re-runs
+  the extension files from disk, fires `session_shutdown` then
+  `session_start` with `reason: "reload"`, preserves the
+  conversation tree, re-initializes the runtime via
+  `resetRuntimeState` (which re-captures `pluginVersion` from
+  the current HEAD). The handler notifies `Reloading extension.
+  A follow-up /cleanup status will report the loaded version.`
+  — the notify string lives in pre-reload code, so it cannot
+  announce the post-reload version itself; `/cleanup status` is
+  the source of truth for what is currently live.
 
 ## State Machine
 
@@ -337,14 +462,29 @@ Special states:
 
 ### Resting States
 
-| State                 | Meaning                                             | Re-enters handler? |
-| --------------------- | --------------------------------------------------- | ------------------ |
-| `Idle`                | Not waiting on a gate/tree/factor fix (review and eval may still be mid-cycle — tracked on `RuntimeState`) | Yes                |
-| `WaitingForTreeFix`   | Sent message to commit dirty files                  | Yes                |
-| `WaitingForGateFix`   | Sent message to fix a gate failure                  | Yes                |
-| `WaitingForFactoring` | Sent message to factor commits                      | Yes                |
-| `AwaitingUserInput`   | Blocked on user action                              | No                 |
-| `Disabled`            | Extension turned off                                | No                 |
+| State | Meaning | Re-enters handler? |
+| --- | --- | --- |
+| `Idle` | Not waiting on a gate/tree/factor fix (review and eval may still be mid-cycle — tracked on `RuntimeState`) | Yes |
+| `WaitingForTreeFix` | Sent message to commit dirty files | Yes |
+| `WaitingForGateFix` | Sent message to fix a gate failure | Yes |
+| `WaitingForFactoring` | Sent message to factor commits | Yes |
+| `AwaitingUserInput` | Blocked on user action. The payload distinguishes `GatesUnconfigured` from `Stalled({ phase, attempts })`. | No |
+| `Disabled` | Extension turned off | No |
+
+### Awaiting Reasons
+
+`AwaitingUserInput` carries a tagged payload so the block reason is
+explicit:
+
+- `GatesUnconfigured` — no gate config at `session_start`; user
+  runs `/gates` or `/gates configure` to unblock.
+- `Stalled({ phase, attempts })` — `MaxAttemptsExceeded` fired
+  during `phase` (one of the three `WaitingFor*` variants);
+  user runs `/cleanup resume` to retry.
+
+The user-paused path is modeled separately as the `Disabled`
+resting state, not as an `AwaitingReason` variant: user runs
+`/cleanup off`; user runs `/cleanup on` to re-enable.
 
 ### Gate Configuration Is Required
 
@@ -380,15 +520,28 @@ observation.
 
 On entry it runs in order:
 
-1. Skip checks (`shouldSkip`, `checkMaxAttempts`, and the
-   `isGitUnchanged` early return).
-2. Convergence check for `WaitingForFactoring` — if HEAD
-   matches `priorHeadSHA`, dispatch `FactoringConverged`,
-   persist the SHA, and return.
-3. Gate phase.
-4. Git-dependent phases (dirty tree → review → atomicity) —
-   skipped entirely if `isGitRepo` is false.
-5. Eval / collapse.
+1. Skip checks — `skipReason` returns early if
+   `Disabled`/`AwaitingUserInput`, `cycleComplete` is true, or
+   mutation state indicates no work. Plus the
+   `Idle + isGitUnchanged + !mid-cycle` early return.
+2. Record prior cycle completion — observes whether the last
+   `WaitingFor*` request was honored (tree now clean, gate now
+   passing, or HEAD moved to an atomic range) and pushes to
+   `cycleActions`. Centralized here because a later phase can
+   dispatch a fresh failure before its own success branch runs,
+   so we observe first.
+3. Check max attempts — stalls to
+   `AwaitingUserInput(Stalled)` only when no progress was
+   observed in step 2 — progress resets the stall pressure even
+   before the phase-level state transition fires.
+4. Convergence check — for `WaitingForFactoring`, dispatches
+   `FactoringConverged` and persists the SHA when HEAD is
+   unchanged since the factoring request. Does not short-
+   circuit; falls through to subsequent phases.
+5. Gate phase.
+6. Git phases (dirty tree → review → atomicity) — the whole
+   section skipped if `isGitRepo` returns false.
+7. Eval / collapse.
 
 Any phase that needs agent action sends a message and returns.
 Pipeline re-entry is driven by the agent's next `agent_end`.
@@ -433,8 +586,15 @@ we step aside rather than fabricate data or block the user.
 When re-entering from `WaitingForFactoring`, the handler first
 checks if HEAD matches `priorHeadSHA`. If unchanged, factoring
 has converged — the agent decided no further splitting was
-needed — and the handler persists the SHA and transitions to
-`Idle`.
+needed — and dispatches `FactoringConverged`, persists the SHA,
+and continues through the remaining phases so eval can still
+fire.
+
+After convergence, the handler continues through gates, git
+phases, and eval — it does not short-circuit — so the terminal
+eval-and-collapse pass still runs. This ordering guarantees
+every `agent_end` that reaches the atomicity checkpoint also
+reaches collapse, keeping context reset deterministic.
 
 ### Attempt Limiting
 
@@ -490,12 +650,12 @@ state change (or a divergence between the probe used by
 `isGitRepo` and the one used by `checkGitStatus`) can still
 produce it.
 
-The `TransitionEvent` enum also defines `GitClean` and
-`GatesPassed` for completeness, but the live orchestrator
-never constructs them — the phase runners short-circuit on the
-positive outcome instead of dispatching a "nothing went wrong"
-event. Both are still handled in `transition()` (they map to
-`Idle`) so the state machine remains total.
+`GitClean` and `GatesPassed` are dispatched by the phase runners
+when a prior `WaitingFor*` state observes its fix was applied —
+e.g. the tree is now clean after a `WaitingForTreeFix`, or
+gates now pass after a `WaitingForGateFix`. This transitions
+state back to `Idle` so the rest of the pipeline can resume the
+cycle.
 
 The review and eval phases do **not** emit state machine
 events. Their bookkeeping (pending/complete flags) lives on
@@ -506,39 +666,37 @@ to command events.
 
 ## Collapse via `navigateTree`
 
-When a cycle completes, the pipeline dispatches
-`/cleanup collapse`, which navigates the session tree back to
-an anchor captured at cycle start and summarizes all the
-cleanup turns in between.
+When a cycle completes, the pipeline calls
+`collapseIfNeeded(runtime)` directly. That helper uses the
+stored `commandCtx` bridge to navigate the session tree back to
+an anchor captured at cycle start and summarize all the cleanup
+turns in between.
 
 ### How It Works
 
-1. **Capture anchor.** Before the first `sendUserMessage` of a
-   cycle (gate fix, dirty tree, review, factor, or eval),
-   `captureCollapseAnchor(runtime, ctx)` records the current
-   leaf entry ID via `ctx.sessionManager.getLeafId()`. It is a
-   no-op if an anchor is already set, so subsequent phase
-   messages do not overwrite it.
+1. **Capture anchor.** The `input` event handler in `src/index.ts`
+   fires for every user-initiated prompt
+   (`event.source !== "extension"`). When `cycleComplete` is
+   true, the handler resets cycle flags; unconditionally it
+   captures the current leaf entry ID via
+   `ctx.sessionManager.getLeafId()` into
+   `runtime.collapseAnchorId`. The anchor lands *before* the
+   user prompt enters the session tree, so collapse folds the
+   entire cycle — user prompt, agent initial work, every
+   extension nudge, every response — into one summary.
 2. **Store command context.** Each time the `/cleanup` or
-   `/gates` command handler runs, it stores a
-   `CommandContextRef` containing `navigateTree.bind(ctx)` on
-   the runtime. This is necessary because `navigateTree` is
-   only exposed via `ExtensionCommandContext`, not the event
-   `ExtensionContext`.
-3. **Send `/cleanup collapse` as a follow-up.** The second
-   pass of `runEvalOrComplete` calls
-   `pi.sendUserMessage("/cleanup collapse",
-   { deliverAs: "followUp" })`. This queues the text as a
-   follow-up user message. Eventually the `/cleanup` handler
-   runs (the exact routing is a pi-coding-agent internal
-   detail, not a guarantee of `sendUserMessage` itself).
-4. **Invoke `navigateTree`.** The `collapse` subcommand calls
-   `collapseIfNeeded`, which calls
-   `commandCtx.navigateTree(anchorId, { customInstructions,
-   summarize: true })`. The custom instructions include the
-   `cycleActions` list, so the summary reflects what this
-   cycle did (e.g. "Fixed failing gate", "Committed uncommitted
-   changes", "Factored 3 commits", "Verified task completion").
+   `/gates` command handler runs, it stores a `CommandContextRef`
+   containing `navigateTree.bind(ctx)` on the runtime. This is
+   the event-path ↔ command-path bridge: the event handlers
+   cannot call `navigateTree` directly, so they reuse the last
+   saved command binding.
+3. **Direct collapse call.** `runEvalOrComplete` second pass
+   awaits `collapseIfNeeded(runtime)` directly.
+4. **Invoke `navigateTree`.** `collapseIfNeeded` calls
+   `navigateTree(anchorId, { summarize: true,
+   customInstructions })`. The custom instructions include the
+   `cycleActions` list, so the summary reflects what this cycle
+   did.
 5. **Clear the anchor.** `collapseIfNeeded` sets
    `collapseAnchorId` back to `None` so the next cycle can
    capture a fresh anchor.
@@ -546,15 +704,60 @@ cleanup turns in between.
 The collapse is idempotent: if either `collapseAnchorId` or
 `commandCtx` is `None`, it is a no-op.
 
-### Why `/cleanup collapse` Instead of a Direct Call
+### Collapse Scope Tradeoff
 
-`navigateTree` is only available on `ExtensionCommandContext`,
-not the `ExtensionContext` passed to event handlers. Routing
-through a slash command gives the pipeline access to a command
-context without requiring the user to type anything. The
-`deliverAs: "followUp"` flag puts the message in the
-follow-up queue rather than the steering queue — a queue
-choice, not a command-routing guarantee.
+**Current behavior**: the anchor lands at the pre-user-prompt
+boundary. Collapse folds the entire cycle into one summary
+message. Bounded 1-msg-per-cycle context growth — session
+baseline stays flat across arbitrary cycle counts.
+
+**Tradeoff**: the user's original prompt text is not preserved as
+a separate visible message; it's included in what
+`navigateTree` summarizes. If the eval phase's self-verification
+("is there anything from the original task still pending?") is
+wrong — an LLM judgment call, not deterministic — the original
+prompt and partial work are lost to the summary.
+
+**Alternative (under consideration)**: capture the anchor at the
+first `agent_end` instead. That would preserve the user's prompt
+along with the agent's task turn visibly, folding only the
+extension-injected cleanup cycle into a summary. Higher
+post-cycle baseline (20-60 msgs of initial work survive), but
+original task evidence is never compressed away.
+
+**Mechanism**: `navigateTree(anchorId, { summarize: true,
+customInstructions })` does the actual collapse. We steer the
+summary by passing `cycleActions` — a human-readable list of
+observed outcomes (`Committed uncommitted changes` /
+`Fixed failing gate` / `Delegated code review to subagent` /
+`Factored commits into atomic units` / `Verified task
+completion`) — as custom instructions. The extension does not
+write the summary text directly; pi's summarization machinery
+does, guided by the hints.
+
+### Why a Direct Call, Not a Slash Follow-up
+
+`pi.sendUserMessage` sets `expandPromptTemplates: false`, which
+skips the slash-command dispatcher. The earlier
+`sendUserMessage("/cleanup collapse", { deliverAs: "followUp" })`
+design therefore never actually routed to the `/cleanup`
+handler — the text was delivered to the LLM. We now route
+through the `commandCtx` saved binding instead.
+
+This moved cycle coordination from an LLM round-trip to a
+harness-direct call, which is both more deterministic and a
+correctness fix because the prior design was broken.
+
+`commandCtx` is the event-path ↔ command-path bridge. The
+invariant is simple: `collapseIfNeeded` is a no-op when
+`commandCtx` is `None`, which is the state until the user has
+invoked `/gates` or `/cleanup` at least once. On a fresh
+session that starts blocked on gates, `/gates configure`
+populates it as a side effect before cleanup can proceed.
+Sessions that restore gates from prior entries can still reach
+collapse with `commandCtx = None`; in that case collapse is
+intentionally skipped until a later command invocation refreshes
+the binding.
 
 ## Persisted Vs. Transient State
 
@@ -566,6 +769,7 @@ choice, not a command-routing guarantee.
 **Transient — reset on `session_start`** (via `resetRuntimeState`):
 
 - `cleanup` — `CleanupState`, resets to `Idle`
+- `pluginVersion` — short HEAD stamp for `/cleanup status`
 - `evalPending`, `cycleComplete` — eval bookkeeping
 - `reviewPending`, `reviewComplete` — review bookkeeping
 - `cycleActions` — summary list for the next collapse
@@ -615,6 +819,21 @@ notifies:
 This makes the friction visible and actionable rather than
 silently skipping gate checks.
 
+### Plugin Version Stamp
+
+On `session_start`, after `resetRuntimeState`, the extension
+runs `git rev-parse --short HEAD` and stores the trimmed stdout
+as `runtime.pluginVersion = Option.some(sha)` on exit code 0
+and non-empty output. Failure paths (not a git repo, exec
+error, empty stdout) log via `warn` and leave `pluginVersion`
+as `None` — `/cleanup status` then reports `Version: unknown`.
+Because `/cleanup reload` triggers a fresh `session_start`, the
+stamp always reflects the HEAD at the moment the extension was
+loaded. Caveat: the stamp reports the *committed* HEAD —
+uncommitted working-tree edits are not reflected. `Same SHA
+after reload` proves the reload picked up committed changes, not
+necessarily working-tree changes.
+
 ## Mutation Detection
 
 The extension tracks "has the session mutated files since the
@@ -622,8 +841,10 @@ last clean state?" to avoid running the pipeline when the agent
 only read files or answered questions.
 
 A `tool_call` listener marks `mutationDetected = true` whenever
-the agent invokes one of `bash`, `edit`, or `write`. These are
-the only built-in tools that can modify files.
+the agent invokes one of the tools in `FILE_MUTATING_TOOLS`
+(currently `bash`, `edit`, `write`) — the only built-in pi
+tools that can modify the repo. Adding a new mutating tool
+means extending this set so the pipeline observes its effect.
 
 The flag is cleared in two places:
 
@@ -641,15 +862,24 @@ the pipeline without work.
 
 ## File Structure
 
+The pipeline orchestration is factored into several
+single-responsibility modules — each concern gets its own small
+file so `handleAgentEnd` stays readable and every
+observation/decision is testable in isolation.
+
 ```text
 src/
 ├── index.ts              # Extension entry, event wiring
 ├── commands.ts           # /gates and /cleanup command handlers
 ├── pipeline.ts           # agent_end orchestrator + eval phase
-├── pipeline-phases.ts    # Gate, dirty-tree, atomicity runners + collapse
+├── pipeline-phases.ts    # Gate, dirty-tree, atomicity runners
 ├── pipeline-review.ts    # Review phase runner + commit counting
+├── pipeline-collapse.ts  # Anchor capture + collapseIfNeeded
+├── pipeline-skip.ts      # SkipReason + isCycleInProgress
+├── pipeline-record.ts    # recordPriorCycleCompletion observation
+├── logger.ts             # warn(ctx, msg) helper for [pi-cleanup] prefix
 ├── state-machine.ts      # CleanupState, TransitionEvent, transition()
-├── types.ts              # Branded primitives, GateConfig, DI aliases
+├── types.ts              # Branded primitives + GateConfig + DI aliases
 ├── runtime.ts            # RuntimeState shape + constructor
 ├── persistence.ts        # appendEntry helpers + entry type constants
 ├── restore.ts            # Session entry parsing helpers
@@ -660,7 +890,12 @@ src/
     ├── atomicity.ts      # Atomicity check + factor message + base SHA
     ├── git-status.ts     # isGitUnchanged, resolveBaseSHA
     └── review.ts         # Review prompt construction + git command
+scripts/
+└── hooks/
+    └── commit-msg        # Repo-local commit validator (see Tooling)
 test/                     # Vitest unit tests mirroring src/
+└── hooks/
+    └── commit-msg.test.ts
 ```
 
 ## Tooling
@@ -679,6 +914,31 @@ manually with `rumdl check docs/**.md`.
 TypeScript at maximum strictness. oxlint with all 6 categories
 at error level, 7 plugins. See `tsconfig.json` and
 `.oxlintrc.jsonc`.
+
+### Git Hooks
+
+The repo includes a local git hook at `scripts/hooks/commit-msg`
+that enforces the project's commit-message rules on every
+`git commit`, regardless of which wrapper the author used. Opt
+in after cloning with `just install-hooks` (which sets
+`core.hooksPath` to `scripts/hooks`).
+
+The hook enforces:
+
+- Subject: conventional-commit format with type in the allowlist
+  (`feat|fix|docs|style|refactor|perf|test|build|chore|ci|revert`),
+  optional non-empty scope, optional `!` breaking-change marker,
+  non-empty description, total ≤ 70 characters, first letter of
+  description lowercase, no trailing period, no ` and ` or
+  ` or ` connective words.
+- Body: every non-comment, non-blank line ≤ 72 characters.
+
+Motivation: `git conventional-commit` enforces these rules when
+invoked via `--action`, but automated agents frequently use raw
+`git commit -m "multi-paragraph body"` which bypasses the
+wrapper. The repo-local hook closes that gap universally.
+Violations exit non-zero with the rule name, offending text,
+and a `git conventional-commit` hint.
 
 ## Dependencies
 
