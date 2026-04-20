@@ -5,6 +5,123 @@ message_file=$1
 line_number=0
 subject_seen=0
 
+fail_subject() {
+  rule_name=$1
+  offending_text=$2
+
+  printf '%s\n' \
+    "commit-msg: ${rule_name}." \
+    "commit-msg: offending text: ${offending_text}" \
+    "commit-msg: hint: use git conventional-commit to generate a valid subject." \
+    >&2
+  exit 1
+}
+
+is_autosquash_subject() {
+  subject=$1
+
+  case "$subject" in
+    "fixup! "*|"squash! "*|"amend! "*)
+      target_subject=${subject#*! }
+      [ -n "$target_subject" ]
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+validate_subject() {
+  subject=$1
+
+  if is_autosquash_subject "$subject"; then
+    return 0
+  fi
+
+  subject_length=${#subject}
+
+  if [ "$subject_length" -gt 70 ]; then
+    fail_subject "subject too long" "$subject"
+  fi
+
+  case "$subject" in
+    *": "*)
+      prefix=${subject%%: *}
+      description=${subject#*: }
+      ;;
+    *)
+      fail_subject "invalid conventional subject" "$subject"
+      ;;
+  esac
+
+  if [ -z "$description" ]; then
+    fail_subject "empty description" "$subject"
+  fi
+
+  prefix_without_breaking=$prefix
+  case "$prefix_without_breaking" in
+    *!)
+      prefix_without_breaking=${prefix_without_breaking%!}
+      ;;
+  esac
+
+  case "$prefix_without_breaking" in
+    *"("*)
+      case "$prefix_without_breaking" in
+        *")")
+          ;;
+        *)
+          fail_subject "invalid scope" "$subject"
+          ;;
+      esac
+
+      type=${prefix_without_breaking%%(*}
+      scope=${prefix_without_breaking#"$type("}
+      scope=${scope%)}
+
+      case "$scope" in
+        ""|*"("*|*")"*)
+          fail_subject "invalid scope" "$subject"
+          ;;
+      esac
+
+      if [ "$prefix_without_breaking" != "$type($scope)" ]; then
+        fail_subject "invalid scope" "$subject"
+      fi
+      ;;
+    *")"*)
+      fail_subject "invalid scope" "$subject"
+      ;;
+    *)
+      type=$prefix_without_breaking
+      ;;
+  esac
+
+  case "$type" in
+    feat|fix|docs|style|refactor|perf|test|build|chore|ci|revert)
+      ;;
+    *)
+      fail_subject "invalid type" "$subject"
+      ;;
+  esac
+
+  case "$description" in
+    *.)
+      fail_subject "trailing period" "$subject"
+      ;;
+  esac
+
+  if printf '%s\n' "$description" | LC_ALL=C grep -q '^[A-Z]'; then
+    fail_subject "capitalized description" "$subject"
+  fi
+
+  case "$subject" in
+    *" and "*|*" or "*)
+      fail_subject "non-atomic subject" "$subject"
+      ;;
+  esac
+}
+
 while IFS= read -r line || [ -n "$line" ]; do
   line_number=$((line_number + 1))
 
@@ -15,9 +132,12 @@ while IFS= read -r line || [ -n "$line" ]; do
   esac
 
   if [ "$subject_seen" -eq 0 ]; then
-    if [ -n "$line" ]; then
-      subject_seen=1
+    if [ -z "$line" ]; then
+      continue
     fi
+
+    subject_seen=1
+    validate_subject "$line"
     continue
   fi
 
