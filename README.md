@@ -14,8 +14,8 @@ After every completed agent run, this extension executes a pipeline:
 1. **Gate phase** — runs the configured quality gate commands
    (formatter, linter, tests). On failure, sends the agent a fix
    message.
-2. **Dirty tree phase** — detects uncommitted changes via `git status
-   --porcelain=v1` and asks the agent to commit them.
+2. **Dirty tree phase** — detects uncommitted changes via
+   `git status --porcelain=v1` and asks the agent to commit them.
 3. **Review phase** — inspects new commits since the last clean SHA and
    asks the agent to delegate a holistic code review to a subagent.
 4. **Atomicity phase** — compares HEAD against the session base SHA (or
@@ -132,13 +132,15 @@ test/
 ## Development
 
 The project uses [just](https://github.com/casey/just) as the task
-runner.
+runner. Install mado locally with
+`brew tap akiomik/mado https://github.com/akiomik/mado.git && brew install mado`.
 
 - `just check` — runs `fmt-check`, `lint`, `typecheck`, and `test`
 - `just fix` — runs `fmt` and `lint-fix`
 - `just install-hooks` — wires `core.hooksPath` to `scripts/hooks`
-- `just fmt` — formats `src/**/*.ts` and `*.md` in place
-- `just fmt-check` — checks formatting for `src/**/*.ts` and `*.md`
+- `just fmt` — formats `src/**/*.ts` in place
+- `just fmt-check` — checks TypeScript formatting with oxfmt and
+  lints Markdown with mado
 - `just lint` — runs `oxlint --deny-warnings 'src/'`
 - `just lint-fix` — runs `oxlint --fix --fix-suggestions 'src/'`
 - `just test` — runs `vitest --coverage` and stages any
@@ -160,7 +162,7 @@ The repo-local `commit-msg` hook validates both the subject and body:
   `docs`, `style`, `refactor`, `perf`, `test`, `build`, `chore`,
   `ci`, `revert`), with an optional well-formed scope, a 70-character
   maximum, a lowercase description, no trailing period, and no
-  ` and ` or ` or ` connective wording
+  connective wording like `and` or `or`
 - non-subject body lines must wrap at 72 characters
 
 Autosquash subjects (`fixup!`, `squash!`, `amend!` followed by a space)
@@ -175,7 +177,7 @@ bypass subject validation; body-line length is still enforced.
 - `@sinclair/typebox` — required by pi for tool parameter schemas
 
 Dev tooling: `vitest`, `@vitest/coverage-v8`, `oxlint`, `oxfmt`,
-`typescript`, `tsx`, `@mermaid-js/mermaid-cli`, `puppeteer`.
+`mado`, `typescript`, `tsx`, `@mermaid-js/mermaid-cli`, `puppeteer`.
 
 ### Agent-Side Requirements
 

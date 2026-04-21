@@ -260,11 +260,11 @@ reason for the outcome:
   with the unwrapped config.
 - `runDirtyTreePhase` returns `DirtyTreePhaseOutcome`:
   `CommitRequested({ porcelain })` / `NotARepo` / `Clean`.
-  Caller matches via `Match.value(...).pipe(Match.tag(...),
-  Match.exhaustive)`.
+  Caller matches via
+  `Match.value(...).pipe(Match.tag(...), Match.exhaustive)`.
 - `runReviewIfNeeded` returns `ReviewPhaseOutcome`:
-  `Requested` / `Completed` / `Skipped({ reason:
-  ReviewSkipReason })`. Only `Requested` short-circuits the
+  `Requested` / `Completed` / `Skipped({ reason: ReviewSkipReason })`.
+  Only `Requested` short-circuits the
   pipeline; `Completed` and `Skipped` continue to atomicity.
 - `runAtomicityPhase` returns `AtomicityPhaseOutcome`:
   `FactoringRequested` / `Atomic` / `NoBase` /
@@ -379,10 +379,10 @@ The extension registers two slash-command families.
   `collapseIfNeeded`. Rarely needed — the pipeline runs this
   automatically at end-of-cycle.
 - `/cleanup reload` — warm-reload the extension.
-  - The handler notifies `Reloading extension. A follow-up
-    /cleanup status will report the loaded version.`, queues
-    `pi.sendUserMessage("/cleanup status", { deliverAs:
-    "followUp" })`, then awaits `ctx.reload()`.
+  - The handler notifies the user that a follow-up
+    `/cleanup status` will report the loaded version, queues
+    `pi.sendUserMessage("/cleanup status", { deliverAs: "followUp" })`,
+    then awaits `ctx.reload()`.
   - `AgentSession.reload()` re-runs the extension files from
     disk, fires `session_shutdown` then `session_start` with
     `reason: "reload"`, and preserves the conversation tree.
@@ -688,8 +688,8 @@ turns in between.
 3. **Direct collapse call.** `runEvalOrComplete` second pass
    awaits `collapseIfNeeded(runtime)` directly.
 4. **Invoke `navigateTree`.** `collapseIfNeeded` calls
-   `navigateTree(anchorId, { summarize: true,
-   customInstructions })`. The custom instructions include the
+   `navigateTree(anchorId, { summarize: true, customInstructions })`.
+   The custom instructions include the
    `cycleActions` list, so the summary reflects what this cycle
    did.
 5. **Clear the anchor.** `collapseIfNeeded` sets
@@ -720,13 +720,14 @@ extension-injected cleanup cycle into a summary. Higher
 post-cycle baseline (20-60 msgs of initial work survive), but
 original task evidence is never compressed away.
 
-**Mechanism**: `navigateTree(anchorId, { summarize: true,
-customInstructions })` does the actual collapse. We steer the
+**Mechanism**:
+`navigateTree(anchorId, { summarize: true, customInstructions })`
+does the actual collapse. We steer the
 summary by passing `cycleActions` — a human-readable list of
 observed outcomes (`Committed uncommitted changes` /
 `Fixed failing gate` / `Delegated code review to subagent` /
-`Factored commits into atomic units` / `Verified task
-completion`) — as custom instructions. The extension does not
+`Factored commits into atomic units` / `Verified task completion`) — as
+custom instructions. The extension does not
 write the summary text directly; pi's summarization machinery
 does, guided by the hints.
 
@@ -825,9 +826,9 @@ as `None` — `/cleanup status` then reports `Version: unknown`.
 Because `/cleanup reload` triggers a fresh `session_start`, the
 stamp always reflects the HEAD at the moment the extension was
 loaded. Caveat: the stamp reports the *committed* HEAD —
-uncommitted working-tree edits are not reflected. `Same SHA
-after reload` proves the reload picked up committed changes, not
-necessarily working-tree changes.
+uncommitted working-tree edits are not reflected. A matching
+`Same SHA after reload` proves the reload picked up committed
+changes, not necessarily working-tree changes.
 
 ## Mutation Detection
 
@@ -896,16 +897,15 @@ test/                     # Vitest unit tests mirroring src/
 ## Tooling
 
 Quality gates for this project: `just check` — oxfmt-check on
-`src/**/*.ts`, rumdl check on repo-root `*.md` only, oxlint on
-`src/`, `tsc --noEmit`, and `vitest run --coverage`. Auto-fix:
-`just fix` — oxfmt write on `src/**/*.ts`, rumdl fmt on
-repo-root `*.md`, and `oxlint --fix --fix-suggestions` on
-`src/`.
+`src/**/*.ts`, mado check across repository Markdown using
+`.mado.toml`, oxlint on `src/`, `tsc --noEmit`, and
+`vitest run --coverage`. Auto-fix: `just fix` — oxfmt write on
+`src/**/*.ts` and `oxlint --fix --fix-suggestions` on `src/`.
+Mado is lint-only, so Markdown fixes are applied manually.
 
-Note that markdown gates only cover files at the repo root;
-`docs/ARCHITECTURE.md` and any future `docs/**/*.md` files are
-outside the default just recipes and must be validated
-manually with `rumdl check docs/**.md`.
+Markdown gates now cover repository Markdown from the repo root,
+including `README.md` and `docs/ARCHITECTURE.md`, because
+`fmt-check-md` runs `mado check`.
 
 TypeScript at maximum strictness. oxlint with all 6 categories
 at error level, 7 plugins. See `tsconfig.json` and
@@ -925,8 +925,8 @@ The hook enforces:
   (`feat|fix|docs|style|refactor|perf|test|build|chore|ci|revert`),
   optional non-empty scope, optional `!` breaking-change marker,
   non-empty description, total ≤ 70 characters, first letter of
-  description lowercase, no trailing period, no ` and ` or
-  ` or ` connective words.
+  description lowercase, no trailing period, and no connective
+  wording like `and` or `or`.
 - Body: every non-comment, non-blank line ≤ 72 characters.
 
 Subjects prefixed with `fixup!`, `squash!`, or `amend!`

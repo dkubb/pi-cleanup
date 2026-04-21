@@ -15,15 +15,23 @@ fix: fmt lint-fix
 install-hooks:
     git config core.hooksPath scripts/hooks
 
-# Format all source files (write in place)
-fmt:
+# Format TypeScript sources (oxfmt)
+fmt-ts:
     oxfmt --write 'src/**/*.ts'
-    rumdl fmt *.md
 
-# Check formatting without writing
-fmt-check:
+# Format all sources (composite)
+fmt: fmt-ts
+
+# Check TypeScript formatting without writing (oxfmt)
+fmt-check-ts:
     oxfmt --check 'src/**/*.ts'
-    rumdl check *.md
+
+# Check markdown formatting (mado)
+fmt-check-md:
+    mado check
+
+# Check all formatting (composite: TypeScript + markdown)
+fmt-check: fmt-check-ts fmt-check-md
 
 # Lint with all auto-fixes applied
 lint-fix:
